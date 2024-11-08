@@ -2,9 +2,9 @@
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Tests;
 
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManagerServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
-use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManagerServiceProvider;
 
 class TestCase extends Orchestra
 {

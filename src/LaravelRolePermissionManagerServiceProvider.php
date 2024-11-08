@@ -2,9 +2,9 @@
 
 namespace CreativeCrafts\LaravelRolePermissionManager;
 
+use CreativeCrafts\LaravelRolePermissionManager\Commands\LaravelRolePermissionManagerCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use CreativeCrafts\LaravelRolePermissionManager\Commands\LaravelRolePermissionManagerCommand;
 
 class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
 {
