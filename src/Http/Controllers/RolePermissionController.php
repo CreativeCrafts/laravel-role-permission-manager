@@ -14,6 +14,7 @@ class RolePermissionController extends Controller
     public function getRoles(): JsonResponse
     {
         $roles = Role::all();
+
         return response()->json($roles);
     }
 
@@ -21,6 +22,7 @@ class RolePermissionController extends Controller
     {
         $scope = $request->query('scope');
         $permissions = $manager->getAllPermissionsForScope($scope);
+
         return response()->json($permissions);
     }
 
@@ -29,6 +31,7 @@ class RolePermissionController extends Controller
         $userModel = $this->getUserModel();
         $user = $userModel::findOrFail($userId);
         $roles = $user->roles;
+
         return response()->json($roles);
     }
 
@@ -42,6 +45,7 @@ class RolePermissionController extends Controller
         $userModel = $this->getUserModel();
         $user = $userModel::findOrFail($userId);
         $permissions = $manager->getAllPermissionsForUser($user);
+
         return response()->json($permissions);
     }
 
@@ -50,6 +54,7 @@ class RolePermissionController extends Controller
         $userModel = $this->getUserModel();
         $user = $userModel::findOrFail($userId);
         $permissions = $user->getAllPermissions($scope);
+
         return response()->json($permissions);
     }
 }

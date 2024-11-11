@@ -23,7 +23,7 @@ class SyncPermissionsCommand extends Command
         $useIds = $this->option('use-ids');
 
         $role = $this->getRole($roleIdentifier, $useIds);
-        if (!$role) {
+        if (! $role) {
             return self::FAILURE;
         }
 
@@ -32,7 +32,7 @@ class SyncPermissionsCommand extends Command
             return self::FAILURE;
         }
 
-        if (!$this->confirmSync($role, $permissions)) {
+        if (! $this->confirmSync($role, $permissions)) {
             return self::FAILURE;
         }
 
@@ -46,10 +46,12 @@ class SyncPermissionsCommand extends Command
     private function getRole($identifier, $useIds): ?string
     {
         $role = $useIds ? Role::find($identifier) : Role::where('slug', $identifier)->first();
-        if (!$role) {
-            $this->error("Role not found.");
+        if (! $role) {
+            $this->error('Role not found.');
+
             return null;
         }
+
         return $role;
     }
 
@@ -58,18 +60,21 @@ class SyncPermissionsCommand extends Command
         $permissions = [];
         foreach ($identifiers as $identifier) {
             $permission = $useIds ? Permission::find($identifier) : Permission::where('slug', $identifier)->first();
-            if (!$permission) {
+            if (! $permission) {
                 $this->error("Permission '{$identifier}' not found.");
+
                 continue;
             }
             $permissions[] = $permission;
         }
+
         return $permissions;
     }
 
     private function confirmSync($role, $permissions): bool
     {
-        $permissionNames = implode(', ', array_map(fn($p) => $p->name, $permissions));
+        $permissionNames = implode(', ', array_map(fn ($p) => $p->name, $permissions));
+
         return $this->confirm(
             "Are you sure you want to sync the following permissions for the role '{$role->name}'?\n{$permissionNames}"
         );
@@ -78,14 +83,14 @@ class SyncPermissionsCommand extends Command
     private function displayResults($role, $result): void
     {
         $this->info("Permissions synced for role '{$role->name}' successfully.");
-        if (!empty($result['attached'])) {
-            $this->info("Added permissions: " . implode(', ', $result['attached']));
+        if (! empty($result['attached'])) {
+            $this->info('Added permissions: '.implode(', ', $result['attached']));
         }
-        if (!empty($result['detached'])) {
-            $this->info("Removed permissions: " . implode(', ', $result['detached']));
+        if (! empty($result['detached'])) {
+            $this->info('Removed permissions: '.implode(', ', $result['detached']));
         }
         if (empty($result['attached']) && empty($result['detached'])) {
-            $this->info("No changes were made.");
+            $this->info('No changes were made.');
         }
     }
 }

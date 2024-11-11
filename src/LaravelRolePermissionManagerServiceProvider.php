@@ -32,7 +32,7 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
                 RemovePermissionCommand::class,
                 ListRolesPermissionsCommand::class,
                 RemovePermissionCommand::class,
-                SyncPermissionsCommand::class
+                SyncPermissionsCommand::class,
             ])
             ->publishesServiceProvider('AuthServiceProvider');
     }
@@ -105,18 +105,18 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     {
         $userModel = config('auth.providers.users.model');
 
-        if (!class_exists($userModel)) {
+        if (! class_exists($userModel)) {
             throw new \InvalidArgumentException("User model {$userModel} does not exist.");
         }
 
-        if (!is_subclass_of($userModel, Model::class)) {
+        if (! is_subclass_of($userModel, Model::class)) {
             throw new \InvalidArgumentException('The user model must extend Illuminate\Database\Eloquent\Model');
         }
 
-        if (!in_array(Traits\HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
+        if (! in_array(Traits\HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
             throw new \InvalidArgumentException('The user model must use the HasRolesAndPermissions trait');
+        }
     }
-}
 
     protected function registerBladeDirectives(): void
     {
@@ -143,7 +143,7 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
-                __DIR__ . '/Policies' => app_path('Policies'),
+                __DIR__.'/Policies' => app_path('Policies'),
             ], 'laravel-role-permission-manager-policies');
         }
     }

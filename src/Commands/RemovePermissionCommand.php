@@ -23,7 +23,7 @@ class RemovePermissionCommand extends Command
         $useIds = $this->option('use-ids');
 
         $role = $this->getRole($roleIdentifier, $useIds);
-        if (!$role) {
+        if (! $role) {
             return self::FAILURE;
         }
 
@@ -32,7 +32,7 @@ class RemovePermissionCommand extends Command
             return self::FAILURE;
         }
 
-        if (!$this->confirmRemoval($role, $permissions)) {
+        if (! $this->confirmRemoval($role, $permissions)) {
             return self::FAILURE;
         }
 
@@ -47,10 +47,12 @@ class RemovePermissionCommand extends Command
     private function getRole($identifier, $useIds): ?string
     {
         $role = $useIds ? Role::find($identifier) : Role::where('slug', $identifier)->first();
-        if (!$role) {
-            $this->error("Role not found.");
+        if (! $role) {
+            $this->error('Role not found.');
+
             return null;
         }
+
         return $role;
     }
 
@@ -59,18 +61,21 @@ class RemovePermissionCommand extends Command
         $permissions = [];
         foreach ($identifiers as $identifier) {
             $permission = $useIds ? Permission::find($identifier) : Permission::where('slug', $identifier)->first();
-            if (!$permission) {
+            if (! $permission) {
                 $this->error("Permission '{$identifier}' not found.");
+
                 continue;
             }
             $permissions[] = $permission;
         }
+
         return $permissions;
     }
 
     private function confirmRemoval($role, $permissions): bool
     {
-        $permissionNames = implode(', ', array_map(fn($p) => $p->name, $permissions));
+        $permissionNames = implode(', ', array_map(fn ($p) => $p->name, $permissions));
+
         return $this->confirm(
             "Are you sure you want to remove the following permissions from the role '{$role->name}'?\n{$permissionNames}"
         );

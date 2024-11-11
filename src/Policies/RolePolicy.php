@@ -12,7 +12,7 @@ class RolePolicy
     use HandlesAuthorization;
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * @param  Authenticatable|HasRolesAndPermissions  $user
      */
     public function viewAny($user): bool
     {
@@ -20,7 +20,7 @@ class RolePolicy
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * @param  Authenticatable|HasRolesAndPermissions  $user
      */
     public function view($user, Role $role): bool
     {
@@ -28,7 +28,7 @@ class RolePolicy
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * @param  Authenticatable|HasRolesAndPermissions  $user
      */
     public function create($user): bool
     {
@@ -36,7 +36,7 @@ class RolePolicy
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * @param  Authenticatable|HasRolesAndPermissions  $user
      */
     public function update($user, Role $role): bool
     {
@@ -44,7 +44,7 @@ class RolePolicy
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * @param  Authenticatable|HasRolesAndPermissions  $user
      */
     public function delete($user, Role $role): bool
     {

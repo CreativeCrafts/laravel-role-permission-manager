@@ -19,11 +19,11 @@ class ListRolesPermissionsCommand extends Command
     {
         $perPage = $this->option('per-page');
 
-        if (!$this->option('permissions-only')) {
+        if (! $this->option('permissions-only')) {
             $this->listRoles($perPage);
         }
 
-        if (!$this->option('roles-only')) {
+        if (! $this->option('roles-only')) {
             $this->listPermissions($perPage);
         }
 
@@ -37,7 +37,7 @@ class ListRolesPermissionsCommand extends Command
         $this->info('Roles:');
         $this->table(
             ['ID', 'Name', 'Slug', 'Description', 'Permissions Count'],
-            $roles->map(fn($role) => [
+            $roles->map(fn ($role) => [
                 $role->id,
                 $role->name,
                 $role->slug,
@@ -46,7 +46,7 @@ class ListRolesPermissionsCommand extends Command
             ])
         );
 
-        $this->info($roles->total() . ' roles in total.');
+        $this->info($roles->total().' roles in total.');
         $roles->hasPages() && $this->info('Use --page option to see more results.');
     }
 
@@ -57,7 +57,7 @@ class ListRolesPermissionsCommand extends Command
         $this->info('Permissions:');
         $this->table(
             ['ID', 'Name', 'Slug', 'Description'],
-            $permissions->map(fn($permission) => [
+            $permissions->map(fn ($permission) => [
                 $permission->id,
                 $permission->name,
                 $permission->slug,
@@ -65,7 +65,7 @@ class ListRolesPermissionsCommand extends Command
             ])
         );
 
-        $this->info($permissions->total() . ' permissions in total.');
+        $this->info($permissions->total().' permissions in total.');
         $permissions->hasPages() && $this->info('Use --page option to see more results.');
     }
 }

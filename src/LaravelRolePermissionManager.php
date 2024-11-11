@@ -27,10 +27,10 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * This function creates a new role with the given name, slug, and optional description and parent role.
      * After creating the role, it clears the role cache to ensure the new role is immediately available.
      *
-     * @param string $name The name of the role.
-     * @param string $slug A unique identifier for the role.
-     * @param string|null $description An optional description of the role.
-     * @param Role|null $parent An optional parent role for hierarchical role structures.
+     * @param  string  $name  The name of the role.
+     * @param  string  $slug  A unique identifier for the role.
+     * @param  string|null  $description  An optional description of the role.
+     * @param  Role|null  $parent  An optional parent role for hierarchical role structures.
      * @return Role The newly created role instance.
      */
     public function createRole(string $name, string $slug, ?string $description = null, ?Role $parent = null): Role
@@ -53,9 +53,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * structure. After setting the parent, it saves the changes and clears the role cache
      * to ensure the updated hierarchy is reflected in subsequent queries.
      *
-     * @param Role $role The role for which to set the parent.
-     * @param Role|null $parent The parent role to be associated, or null to remove the parent.
-     * @return void
+     * @param  Role  $role  The role for which to set the parent.
+     * @param  Role|null  $parent  The parent role to be associated, or null to remove the parent.
      */
     public function setRoleParent(Role $role, ?Role $parent): void
     {
@@ -70,7 +69,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * This method fetches all permissions that are directly assigned to the given role,
      * as well as permissions inherited from parent roles in a hierarchical structure.
      *
-     * @param Role $role The role object for which to retrieve permissions.
+     * @param  Role  $role  The role object for which to retrieve permissions.
      * @return Collection A collection of Permission objects associated with the role.
      */
     public function getAllPermissionsForRole(Role $role): Collection
@@ -84,10 +83,10 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * It applies case sensitivity based on configuration settings and clears the permission cache
      * to ensure the new permission is immediately available.
      *
-     * @param string $name The name of the permission.
-     * @param string $slug A unique identifier for the permission.
-     * @param string|null $scope An optional scope for the permission, allowing for context-specific permissions.
-     * @param string|null $description An optional description of the permission.
+     * @param  string  $name  The name of the permission.
+     * @param  string  $slug  A unique identifier for the permission.
+     * @param  string|null  $scope  An optional scope for the permission, allowing for context-specific permissions.
+     * @param  string|null  $description  An optional description of the permission.
      * @return Permission The newly created permission instance.
      */
     public function createPermission(
@@ -148,10 +147,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * ensures that the permission is added to the role without removing existing permissions.
      * After assigning the permission, it clears the role cache to reflect the changes.
      *
-     * @param Role $role The role to which the permission will be assigned.
-     * @param Permission|string $permission The permission to be assigned. Can be either a Permission object or a permission slug.
-     * @param string|null $scope The scope of the permission, if applicable. Default is null.
-     * @return void
+     * @param  Role  $role  The role to which the permission will be assigned.
+     * @param  Permission|string  $permission  The permission to be assigned. Can be either a Permission object or a permission slug.
+     * @param  string|null  $scope  The scope of the permission, if applicable. Default is null.
      */
     public function givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
@@ -170,10 +168,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * provided as a string, it will be looked up by its slug and scope. After
      * revoking the permission, it clears the role cache to reflect the changes.
      *
-     * @param Role $role The role from which the permission will be revoked.
-     * @param Permission|string $permission The permission to be revoked. Can be either a Permission object or a permission slug.
-     * @param string|null $scope The scope of the permission, if applicable. Default is null.
-     * @return void
+     * @param  Role  $role  The role from which the permission will be revoked.
+     * @param  Permission|string  $permission  The permission to be revoked. Can be either a Permission object or a permission slug.
+     * @param  string|null  $scope  The scope of the permission, if applicable. Default is null.
      */
     public function revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
@@ -192,8 +189,6 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * effectively invalidating the cached roles' data. This should
      * be called whenever roles are modified to ensure fresh data
      * is retrieved on subsequent requests.
-     *
-     * @return void
      */
     private function clearRoleCache(): void
     {
@@ -206,8 +201,6 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * effectively invalidating the cached permission's data. This should
      * be called whenever permissions are modified to ensure fresh data
      * is retrieved on subsequent requests.
-     *
-     * @return void
      */
     private function clearPermissionCache(): void
     {
@@ -219,9 +212,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * This method updates the permissions associated with the specified role.
      * It replaces all existing permissions with the new set of permissions provided.
      *
-     * @param Role $role The role to update permissions for.
-     * @param array $permissions An array of permission slugs to be assigned to the role.
-     * @return void
+     * @param  Role  $role  The role to update permissions for.
+     * @param  array  $permissions  An array of permission slugs to be assigned to the role.
      */
     public function syncPermissions(Role $role, array $permissions): void
     {
@@ -235,9 +227,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * optionally within a specific scope. It handles super admin permissions,
      * auto-creation of permissions, and wildcard permission matching.
      *
-     * @param mixed $user The user object to check permissions for.
-     * @param string $permission The permission to check for.
-     * @param string|null $scope Optional. The scope of the permission. Default is null.
+     * @param  mixed  $user  The user object to check permissions for.
+     * @param  string  $permission  The permission to check for.
+     * @param  string|null  $scope  Optional. The scope of the permission. Default is null.
      * @return bool Returns true if the user has the specified permission, false otherwise.
      */
     public function hasPermissionTo(mixed $user, string $permission, ?string $scope = null): bool
@@ -271,9 +263,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * including both direct permissions and those inherited through roles.
      * The result is cached to improve performance on subsequent calls.
      *
-     * @param mixed $user The user object for which to retrieve permissions.
-     *                    This should be an instance of a class that has
-     *                    'permissions' and 'roles' relationships defined.
+     * @param  mixed  $user  The user object for which to retrieve permissions.
+     *                       This should be an instance of a class that has
+     *                       'permissions' and 'roles' relationships defined.
      * @return Collection A collection of unique Permission objects associated with the user,
      *                    including both direct and role-based permissions.
      */
@@ -287,7 +279,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 $rolePermissions = $user->roles->flatMap->getAllPermissions();
 
                 return $directPermissions->merge($rolePermissions)->unique(function ($permission) {
-                    return $permission->slug . '-' . $permission->scope;
+                    return $permission->slug.'-'.$permission->scope;
                 });
             }
         );
@@ -298,7 +290,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * This function fetches permissions from the database based on the provided scope.
      * The results are cached to improve performance on subsequent calls.
      *
-     * @param string|null $scope The scope for which to retrieve permissions. If null, all permissions are retrieved.
+     * @param  string|null  $scope  The scope for which to retrieve permissions. If null, all permissions are retrieved.
      * @return Collection A collection of Permission models matching the specified scope or all permissions.
      */
     public function getAllPermissionsForScope(?string $scope = null): Collection
@@ -315,8 +307,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * This function determines whether the given user has been assigned the super admin role,
      * as defined in the role-permission-manager configuration.
      *
-     * @param mixed $user The user object to check for super admin status.
-     *                    This should be an instance of a class that has a 'roles' relationship defined.
+     * @param  mixed  $user  The user object to check for super admin status.
+     *                       This should be an instance of a class that has a 'roles' relationship defined.
      * @return bool Returns true if the user has the super admin role, false otherwise.
      */
     public function isSuperAdmin(mixed $user): bool

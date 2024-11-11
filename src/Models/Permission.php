@@ -25,7 +25,7 @@ class Permission extends Model
         parent::boot();
 
         static::creating(static function ($permission) {
-            if (!$permission->slug) {
+            if (! $permission->slug) {
                 $permission->slug = Str::slug($permission->name);
             }
         });
@@ -44,7 +44,7 @@ class Permission extends Model
 
     public function wildcardMatch($permission, $scope = null): bool
     {
-        if (!config('role-permission-manager.enable_wildcard_permission')) {
+        if (! config('role-permission-manager.enable_wildcard_permission')) {
             return $this->name === $permission && ($scope === null || $this->scope === $scope);
         }
 
@@ -55,7 +55,8 @@ class Permission extends Model
         $pattern = preg_quote($this->name, '/');
         $pattern = str_replace('\*', '.*', $pattern);
         $flags = config('role-permission-manager.case_sensitive_permissions') ? '' : 'i';
-        return (bool)preg_match('/^' . $pattern . '$/' . $flags, $permission);
+
+        return (bool) preg_match('/^'.$pattern.'$/'.$flags, $permission);
     }
 
     public function getSlugAttribute(): string

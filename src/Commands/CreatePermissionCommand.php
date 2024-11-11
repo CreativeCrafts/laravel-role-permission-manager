@@ -25,9 +25,11 @@ class CreatePermissionCommand extends Command
         try {
             $permission = LaravelRolePermissionManager::createPermission($name, $slug, $description, $scope);
             $this->info("Permission '{$permission->name}' created successfully.");
+
             return self::SUCCESS;
         } catch (\Exception $e) {
-            $this->error("Failed to create permission: " . $e->getMessage());
+            $this->error('Failed to create permission: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

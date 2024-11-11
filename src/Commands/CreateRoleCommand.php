@@ -25,9 +25,11 @@ class CreateRoleCommand extends Command
         try {
             $role = LaravelRolePermissionManager::createRole($name, $slug, $description, $parentSlug);
             $this->info("Role '{$role->name}' created successfully.");
+
             return self::SUCCESS;
         } catch (\Exception $e) {
-            $this->error("Failed to create role: " . $e->getMessage());
+            $this->error('Failed to create role: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

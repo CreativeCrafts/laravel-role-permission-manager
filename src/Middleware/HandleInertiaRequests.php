@@ -39,7 +39,7 @@ class HandleInertiaRequests
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return [];
         }
 

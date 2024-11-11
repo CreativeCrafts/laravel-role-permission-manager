@@ -24,7 +24,7 @@ class Role extends Model
         parent::boot();
 
         static::creating(static function ($role) {
-            if (!$role->slug) {
+            if (! $role->slug) {
                 $role->slug = Str::slug($role->name);
             }
         });

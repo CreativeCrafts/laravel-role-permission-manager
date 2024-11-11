@@ -11,7 +11,7 @@ class PermissionMiddleware
 {
     public function handle(Request $request, Closure $next, string ...$permissions): Response
     {
-        if (!Auth::check()) {
+        if (! Auth::check()) {
             return $this->unauthorized($request);
         }
 

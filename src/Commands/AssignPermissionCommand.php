@@ -22,20 +22,23 @@ class AssignPermissionCommand extends Command
             $role = Role::where('slug', $roleName)->firstOrFail();
             $permission = Permission::where('slug', $permissionName)->first();
 
-            if (!$permission && $this->option('create-permission')) {
+            if (! $permission && $this->option('create-permission')) {
                 $permission = Permission::create(['name' => $permissionName, 'slug' => $permissionName]);
                 $this->info("Permission '{$permissionName}' created.");
-            } elseif (!$permission) {
+            } elseif (! $permission) {
                 $this->error("Permission '{$permissionName}' not found.");
+
                 return self::FAILURE;
             }
 
             LaravelRolePermissionManager::givePermissionToRole($role, $permission);
 
             $this->info("Permission '{$permission->name}' assigned to role '{$role->name}' successfully.");
+
             return self::SUCCESS;
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             $this->error("Role '{$roleName}' not found.");
+
             return self::FAILURE;
         }
     }
