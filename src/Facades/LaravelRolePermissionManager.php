@@ -11,6 +11,6 @@ class LaravelRolePermissionManager extends Facade
 {
     protected static function getFacadeAccessor(): string
     {
-        return \CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager::class;
+        return 'laravel-role-permission-manager';
     }
 }
