@@ -116,6 +116,22 @@ Key configuration options:
     - enable_wildcard_permission: Enable or disable wildcard permissions
     - case_sensitive_permissions: Choose whether permission names should be case-sensitive
 
+### Registering Your User Model
+
+After installing the package, you need to register your User model. This step is crucial for the package to work
+correctly with your application's user model.
+
+Add the following code to your `AppServiceProvider` or a custom service provider:
+
+```php
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManagerServiceProvider;
+
+public function boot()
+{
+    LaravelRolePermissionManagerServiceProvider::registerUserModel(\App\Models\User::class);
+}
+```
+
 ### Database Migrations
 
 The package includes migrations for creating the necessary database tables. These will be published when you run the

@@ -28,6 +28,32 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
 
 class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
 {
+    /**
+     * Register the user model for the role-permission manager.
+     * This method should be called by the application after installing the package.
+     *
+     * @param string $userModel The fully qualified class name of the user model
+     * @throws InvalidArgumentException If the user model is invalid
+     */
+    public static function registerUserModel(string $userModel): void
+    {
+        if (! class_exists($userModel)) {
+            throw new InvalidArgumentException("User model {$userModel} does not exist.");
+        }
+
+        if (! is_subclass_of($userModel, Model::class)) {
+            throw new InvalidArgumentException("User model {$userModel} must extend Eloquent Model.");
+        }
+
+        if (! in_array(HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
+            throw new InvalidArgumentException('The user model must use the HasRolesAndPermissions trait.');
+        }
+
+        config([
+            'role-permission-manager.user_model' => $userModel,
+        ]);
+    }
+
     public function configurePackage(Package $package): void
     {
         $package
@@ -68,9 +94,6 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     public function packageBooted(): void
     {
         $this->registerMiddleware();
-        if (! $this->app->runningInConsole()) {
-            $this->validateUserModel();
-        }
         $this->registerGateCheck();
         $this->registerRoutes();
         $this->registerCache();
