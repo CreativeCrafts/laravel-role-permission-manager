@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 return [
     /*
     |--------------------------------------------------------------------------
@@ -135,4 +137,41 @@ return [
     | If set to true, permission names will be case-sensitive.
     */
     'case_sensitive_permissions' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Register Permission Check Method
+    |--------------------------------------------------------------------------
+    |
+    | If set to true, a global gate check will be registered that checks if the user has the required permission for a given ability.
+    */
+    'register_permission_check_method' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Register Blade Directives
+    |--------------------------------------------------------------------------
+    |
+    | If set to true, the package will register custom Blade directives for
+    | checking roles and permissions in your Blade templates.
+    */
+    'register_blade_directives' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Use Cache
+    |--------------------------------------------------------------------------
+    |
+    | If set to true, the cache repository is used for storing and retrieving role and permission data.
+    */
+    'use_cache' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cache Store
+    |--------------------------------------------------------------------------
+    |
+    | This is the cache store used for storing and retrieving role and permission data.
+    */
+    'cache_store' => env('CACHE_STORE', 'database'),
 ];

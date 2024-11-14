@@ -345,13 +345,56 @@ When a user doesn't have the required role:
 
 The package provides a facade for easy access to role and permission management functions.
 
-Usage:
+#### Key methods:
+
+- `createRole(string $name, string $slug, ?string $description = null, ?Role $parent = null): Role`
+- `createPermission(string $name, string $slug, ?string $description = null): Permission`
+- `givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void`
+- `revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void`
+- `syncPermissions(Role $role, array $permissions): void`
+- `hasPermissionTo(mixed $user, string $permission, ?string $scope = null): bool`
+- `getSubRoles(Role $role): Collection`
+- `grantPermissionToRoleAndSubRoles(Role $role, Permission|string $permission): void`
+- `revokePermissionFromRoleAndSubRoles(Role $role, Permission|string $permission): void`
+
+Usage example:
 
 ```php
 use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
 
-LaravelRolePermissionManager::createRole('admin');
+// Create a role
+$role = LaravelRolePermissionManager::createRole('Editor', 'editor');
+
+// Create a permission
+$permission = LaravelRolePermissionManager::createPermission('Edit Posts', 'edit-posts');
+
+// Give permission to role
+LaravelRolePermissionManager::givePermissionToRole($role, $permission);
+
+// Grant permission to role and its sub-roles
+LaravelRolePermissionManager::grantPermissionToRoleAndSubRoles($role, 'edit-posts');
+
+// Revoke permission from role and its sub-roles
+LaravelRolePermissionManager::revokePermissionFromRoleAndSubRoles($role, 'edit-posts');
+
+// Check if user has permission
+$hasPermission = LaravelRolePermissionManager::hasPermissionTo($user, 'edit-posts');
+
+// Get all sub-roles of a given role
+$parentRole = Role::findByName('manager');
+$subRoles = LaravelRolePermissionManager::getSubRoles($parentRole);
+
+// Grant a permission to a role and all its sub-roles
+$role = Role::findByName('manager');
+LaravelRolePermissionManager::grantPermissionToRoleAndSubRoles($role, 'edit_posts');
+
+// Revoke a permission from a role and all its sub-roles
+LaravelRolePermissionManager::revokePermissionFromRoleAndSubRoles($role, 'delete_users');
 ```
+
+These new methods allow for more granular control over role hierarchies and permissions. The getSubRoles method
+retrieves all sub-roles of a given role, while grantPermissionToRoleAndSubRoles and revokePermissionFromRoleAndSubRoles
+apply permission changes to both the specified role and all its sub-roles.
 
 ### Artisan Commands
 

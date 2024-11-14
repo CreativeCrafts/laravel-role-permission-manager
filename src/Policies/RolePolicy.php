@@ -1,52 +1,75 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Policies;
 
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
-use CreativeCrafts\LaravelRolePermissionManager\Traits\HasRolesAndPermissions;
 use Illuminate\Auth\Access\HandlesAuthorization;
-use Illuminate\Contracts\Auth\Authenticatable;
 
+/**
+ * This policy class defines authorization rules for role-related actions.
+ * It uses the HandlesAuthorization trait for common authorization methods.
+ */
 class RolePolicy
 {
     use HandlesAuthorization;
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * Determine whether the user can view any roles.
+     *
+     * @param AuthenticatableWithRolesAndPermissions $user The authenticated user
+     * @return bool True if the user has permission to view roles, false otherwise
      */
-    public function viewAny($user): bool
+    public function viewAny(AuthenticatableWithRolesAndPermissions $user): bool
     {
         return $user->hasPermissionTo('view roles');
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * Determine whether the user can view a specific role.
+     *
+     * @param AuthenticatableWithRolesAndPermissions $user The authenticated user
+     * @param Role $role The role to be viewed
+     * @return bool True if the user has permission to view roles, false otherwise
      */
-    public function view($user, Role $role): bool
+    public function view(AuthenticatableWithRolesAndPermissions $user, Role $role): bool
     {
         return $user->hasPermissionTo('view roles');
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * Determine whether the user can create roles.
+     *
+     * @param AuthenticatableWithRolesAndPermissions $user The authenticated user
+     * @return bool True if the user has permission to create roles, false otherwise
      */
-    public function create($user): bool
+    public function create(AuthenticatableWithRolesAndPermissions $user): bool
     {
         return $user->hasPermissionTo('create roles');
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * Determine whether the user can update a specific role.
+     *
+     * @param AuthenticatableWithRolesAndPermissions $user The authenticated user
+     * @param Role $role The role to be updated
+     * @return bool True if the user has permission to edit roles, false otherwise
      */
-    public function update($user, Role $role): bool
+    public function update(AuthenticatableWithRolesAndPermissions $user, Role $role): bool
     {
         return $user->hasPermissionTo('edit roles');
     }
 
     /**
-     * @param Authenticatable|HasRolesAndPermissions $user
+     * Determine whether the user can delete a specific role.
+     *
+     * @param AuthenticatableWithRolesAndPermissions $user The authenticated user
+     * @param Role $role The role to be deleted
+     * @return bool True if the user has permission to delete roles, false otherwise
      */
-    public function delete($user, Role $role): bool
+    public function delete(AuthenticatableWithRolesAndPermissions $user, Role $role): bool
     {
         return $user->hasPermissionTo('delete roles');
     }

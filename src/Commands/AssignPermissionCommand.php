@@ -1,11 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
 use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class AssignPermissionCommand extends Command
 {
@@ -22,10 +25,13 @@ class AssignPermissionCommand extends Command
             $role = Role::where('slug', $roleName)->firstOrFail();
             $permission = Permission::where('slug', $permissionName)->first();
 
-            if (!$permission && $this->option('create-permission')) {
-                $permission = Permission::create(['name' => $permissionName, 'slug' => $permissionName]);
+            if (! $permission && $this->option('create-permission')) {
+                $permission = Permission::create([
+                    'name' => $permissionName,
+                    'slug' => $permissionName,
+                ]);
                 $this->info("Permission '{$permissionName}' created.");
-            } elseif (!$permission) {
+            } elseif (! $permission) {
                 $this->error("Permission '{$permissionName}' not found.");
                 return self::FAILURE;
             }
@@ -34,7 +40,7 @@ class AssignPermissionCommand extends Command
 
             $this->info("Permission '{$permission->name}' assigned to role '{$role->name}' successfully.");
             return self::SUCCESS;
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        } catch (ModelNotFoundException $e) {
             $this->error("Role '{$roleName}' not found.");
             return self::FAILURE;
         }

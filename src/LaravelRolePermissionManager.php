@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager;
 
 use CreativeCrafts\LaravelRolePermissionManager\Contracts\LaravelRolePermissionManagerContract;
@@ -10,18 +12,6 @@ use Illuminate\Support\Facades\Cache;
 
 class LaravelRolePermissionManager implements LaravelRolePermissionManagerContract
 {
-    /**
-     * Get the cache expiration time from the configuration.
-     * This method retrieves the cache expiration time from the role-permission-manager
-     * configuration. If the configuration value is not set, it defaults to 60 minutes.
-     *
-     * @return int The cache expiration time in minutes.
-     */
-    private function getCacheExpirationTime(): int
-    {
-        return config('role-permission-manager.cache_expiration_time', 60);
-    }
-
     /**
      * Create a new role in the system.
      * This function creates a new role with the given name, slug, and optional description and parent role.
@@ -55,7 +45,6 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      *
      * @param Role $role The role for which to set the parent.
      * @param Role|null $parent The parent role to be associated, or null to remove the parent.
-     * @return void
      */
     public function setRoleParent(Role $role, ?Role $parent): void
     {
@@ -151,7 +140,6 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param Role $role The role to which the permission will be assigned.
      * @param Permission|string $permission The permission to be assigned. Can be either a Permission object or a permission slug.
      * @param string|null $scope The scope of the permission, if applicable. Default is null.
-     * @return void
      */
     public function givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
@@ -173,7 +161,6 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param Role $role The role from which the permission will be revoked.
      * @param Permission|string $permission The permission to be revoked. Can be either a Permission object or a permission slug.
      * @param string|null $scope The scope of the permission, if applicable. Default is null.
-     * @return void
      */
     public function revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
@@ -187,46 +174,27 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
     }
 
     /**
-     * Clear the cached roles.
-     * This method removes the 'all_roles' key from the cache,
-     * effectively invalidating the cached roles' data. This should
-     * be called whenever roles are modified to ensure fresh data
-     * is retrieved on subsequent requests.
+     * Synchronize permissions for a role.
      *
-     * @return void
-     */
-    private function clearRoleCache(): void
-    {
-        Cache::forget('all_roles');
-    }
-
-    /**
-     * Clear the cached permissions.
-     * This method removes the 'all_permissions' key from the cache,
-     * effectively invalidating the cached permission's data. This should
-     * be called whenever permissions are modified to ensure fresh data
-     * is retrieved on subsequent requests.
-     *
-     * @return void
-     */
-    private function clearPermissionCache(): void
-    {
-        Cache::forget('all_permissions');
-    }
-
-    /**
-     * Synchronize permissions for a given role.
-     * This method updates the permissions associated with the specified role.
-     * It replaces all existing permissions with the new set of permissions provided.
+     * This function updates the permissions associated with a role. It adds new permissions
+     * and removes existing ones to match the provided list of permissions.
      *
      * @param Role $role The role to update permissions for.
-     * @param array $permissions An array of permission slugs to be assigned to the role.
-     * @return void
+     * @param array $permissions An array of permission slugs to sync with the role.
+     *
+     * @return array An associative array containing two keys:
+     *               - 'attached': An array of names of newly added permissions.
+     *               - 'detached': An array of names of removed permissions.
      */
-    public function syncPermissions(Role $role, array $permissions): void
+    public function syncPermissions(Role $role, array $permissions): array
     {
         $permissionIds = Permission::whereIn('slug', $permissions)->pluck('id')->toArray();
-        $role->permissions()->sync($permissionIds);
+        $syncResult = $role->permissions()->sync($permissionIds);
+
+        return [
+            'attached' => Permission::whereIn('id', $syncResult['attached'])->pluck('name')->toArray(),
+            'detached' => Permission::whereIn('id', $syncResult['detached'])->pluck('name')->toArray(),
+        ];
     }
 
     /**
@@ -286,7 +254,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 $directPermissions = $user->permissions;
                 $rolePermissions = $user->roles->flatMap->getAllPermissions();
 
-                return $directPermissions->merge($rolePermissions)->unique(function ($permission) {
+                return $directPermissions->merge($rolePermissions)->unique(function ($permission): string {
                     return $permission->slug . '-' . $permission->scope;
                 });
             }
@@ -303,10 +271,11 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllPermissionsForScope(?string $scope = null): Collection
     {
-        $cacheKey = $scope ? "all_permissions_scope_{$scope}" : 'all_permissions';
+        $cacheKey = $scope !== null && $scope !== '' && $scope !== '0' ? "all_permissions_scope_{$scope}" : 'all_permissions';
 
         return Cache::remember($cacheKey, $this->getCacheExpirationTime(), static function () use ($scope) {
-            return $scope ? Permission::where('scope', $scope)->get() : Permission::all();
+            return $scope !== null && $scope !== '' && $scope !== '0' ? Permission::where('scope', $scope)->get(
+            ) : Permission::all();
         });
     }
 
@@ -322,5 +291,107 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
     public function isSuperAdmin(mixed $user): bool
     {
         return $user->roles()->where('name', config('role-permission-manager.super_admin_role'))->exists();
+    }
+
+    /**
+     * Retrieve all sub-roles of a given role recursively.
+     * This function fetches all child roles of the given role and their descendants,
+     * creating a flattened collection of all sub-roles in the hierarchy.
+     *
+     * @param Role $role The parent role for which to retrieve sub-roles.
+     * @return Collection A flattened collection of all sub-roles (children and their descendants).
+     */
+    public function getSubRoles(Role $role): Collection
+    {
+        return $role->getAllChildren()->flatMap(function ($child) {
+            return collect([$child])->merge($this->getSubRoles($child));
+        });
+    }
+
+    /**
+     * Grant a permission to a role and all its sub-roles recursively.
+     * This function assigns the specified permission to the given role and then
+     * recursively grants the same permission to all sub-roles (children and their descendants)
+     * of the given role. This ensures that the permission propagates down the role hierarchy.
+     *
+     * @param Role $role The role to which the permission will be granted, along with its sub-roles.
+     * @param Permission|string $permission The permission to be granted. Can be either a Permission object or a permission slug.
+     */
+    public function grantPermissionToRoleAndSubRoles(Role $role, Permission|string $permission): void
+    {
+        $this->givePermissionToRole($role, $permission);
+
+        $subRoles = $this->getSubRoles($role);
+        foreach ($subRoles as $subRole) {
+            $this->givePermissionToRole($subRole, $permission);
+        }
+    }
+
+    /**
+     * Revoke a permission from a role and all its sub-roles recursively.
+     * This function removes the specified permission from the given role and then
+     * recursively revokes the same permission from all sub-roles (children and their descendants)
+     * of the given role. This ensures that the permission removal propagates down the role hierarchy.
+     *
+     * @param Role $role The role from which the permission will be revoked, along with its sub-roles.
+     * @param Permission|string $permission The permission to be revoked. Can be either a Permission object or a permission slug.
+     */
+    public function revokePermissionFromRoleAndSubRoles(Role $role, Permission|string $permission): void
+    {
+        $this->revokePermissionFromRole($role, $permission);
+
+        $subRoles = $this->getSubRoles($role);
+        foreach ($subRoles as $subRole) {
+            $this->revokePermissionFromRole($subRole, $permission);
+        }
+    }
+
+    /**
+     * Retrieve a role by its slug.
+     * This function searches for and returns a role based on the provided slug.
+     * If no matching role is found, it returns null.
+     *
+     * @param string $slug The unique slug identifier of the role to retrieve.
+     * @return Role|null Returns the Role object if found, or null if no matching role exists.
+     */
+    public function getRoleBySlug(string $slug): ?Role
+    {
+        return Role::where('slug', $slug)->first();
+    }
+
+    /**
+     * Get the cache expiration time from the configuration.
+     * This method retrieves the cache expiration time from the role-permission-manager
+     * configuration. If the configuration value is not set, it defaults to 60 minutes.
+     *
+     * @return int The cache expiration time in minutes.
+     */
+    private function getCacheExpirationTime(): int
+    {
+        return config('role-permission-manager.cache_expiration_time', 60);
+    }
+
+    /**
+     * Clear the cached roles.
+     * This method removes the 'all_roles' key from the cache,
+     * effectively invalidating the cached roles' data. This should
+     * be called whenever roles are modified to ensure fresh data
+     * is retrieved on subsequent requests.
+     */
+    private function clearRoleCache(): void
+    {
+        Cache::forget('all_roles');
+    }
+
+    /**
+     * Clear the cached permissions.
+     * This method removes the 'all_permissions' key from the cache,
+     * effectively invalidating the cached permission's data. This should
+     * be called whenever permissions are modified to ensure fresh data
+     * is retrieved on subsequent requests.
+     */
+    private function clearPermissionCache(): void
+    {
+        Cache::forget('all_permissions');
     }
 }

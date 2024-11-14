@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
 use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
+use Exception;
 use Illuminate\Console\Command;
 
 class CreatePermissionCommand extends Command
@@ -26,7 +29,7 @@ class CreatePermissionCommand extends Command
             $permission = LaravelRolePermissionManager::createPermission($name, $slug, $description, $scope);
             $this->info("Permission '{$permission->name}' created successfully.");
             return self::SUCCESS;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->error("Failed to create permission: " . $e->getMessage());
             return self::FAILURE;
         }

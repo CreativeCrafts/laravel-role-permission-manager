@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
@@ -19,12 +21,12 @@ class ListRolesPermissionsCommand extends Command
     {
         $perPage = $this->option('per-page');
 
-        if (!$this->option('permissions-only')) {
-            $this->listRoles($perPage);
+        if (! $this->option('permissions-only')) {
+            $this->listRoles((int) $perPage);
         }
 
-        if (!$this->option('roles-only')) {
-            $this->listPermissions($perPage);
+        if (! $this->option('roles-only')) {
+            $this->listPermissions((int) $perPage);
         }
 
         return self::SUCCESS;
@@ -37,7 +39,7 @@ class ListRolesPermissionsCommand extends Command
         $this->info('Roles:');
         $this->table(
             ['ID', 'Name', 'Slug', 'Description', 'Permissions Count'],
-            $roles->map(fn($role) => [
+            $roles->map(fn ($role): array => [
                 $role->id,
                 $role->name,
                 $role->slug,
@@ -57,7 +59,7 @@ class ListRolesPermissionsCommand extends Command
         $this->info('Permissions:');
         $this->table(
             ['ID', 'Name', 'Slug', 'Description'],
-            $permissions->map(fn($permission) => [
+            $permissions->map(fn ($permission): array => [
                 $permission->id,
                 $permission->name,
                 $permission->slug,

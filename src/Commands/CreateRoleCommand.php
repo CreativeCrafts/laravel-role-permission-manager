@@ -1,12 +1,18 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
-use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
+use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use Exception;
 use Illuminate\Console\Command;
 
 class CreateRoleCommand extends Command
 {
+    protected LaravelRolePermissionManager $roleManager;
+
     protected $signature = 'role-permission:create-role 
                             {name : The name of the role}
                             {slug : The slug of the role}
@@ -14,6 +20,12 @@ class CreateRoleCommand extends Command
                             {--parent= : The slug of the parent role}';
 
     protected $description = 'Create a new role';
+
+    public function __construct(LaravelRolePermissionManager $roleManager)
+    {
+        parent::__construct();
+        $this->roleManager = $roleManager;
+    }
 
     public function handle(): int
     {
@@ -23,10 +35,19 @@ class CreateRoleCommand extends Command
         $parentSlug = $this->option('parent');
 
         try {
-            $role = LaravelRolePermissionManager::createRole($name, $slug, $description, $parentSlug);
+            $parentRole = null;
+            if ($parentSlug) {
+                $parentRole = $this->roleManager->getRoleBySlug($parentSlug);
+                if (! $parentRole instanceof Role) {
+                    $this->error("Parent role with slug '{$parentSlug}' not found.");
+                    return self::FAILURE;
+                }
+            }
+
+            $role = $this->roleManager->createRole($name, $slug, $description, $parentRole);
             $this->info("Role '{$role->name}' created successfully.");
             return self::SUCCESS;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->error("Failed to create role: " . $e->getMessage());
             return self::FAILURE;
         }

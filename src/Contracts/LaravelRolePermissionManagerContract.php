@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CreativeCrafts\LaravelRolePermissionManager\Contracts;
 
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
@@ -29,7 +31,7 @@ interface LaravelRolePermissionManagerContract
 
     public function revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void;
 
-    public function syncPermissions(Role $role, array $permissions): void;
+    public function syncPermissions(Role $role, array $permissions): array;
 
     public function hasPermissionTo(mixed $user, string $permission, ?string $scope = null): bool;
 
@@ -38,4 +40,10 @@ interface LaravelRolePermissionManagerContract
     public function getAllPermissionsForScope(?string $scope = null): Collection;
 
     public function isSuperAdmin(mixed $user): bool;
+
+    public function getSubRoles(Role $role): Collection;
+
+    public function grantPermissionToRoleAndSubRoles(Role $role, Permission|string $permission): void;
+
+    public function revokePermissionFromRoleAndSubRoles(Role $role, Permission|string $permission): void;
 }
