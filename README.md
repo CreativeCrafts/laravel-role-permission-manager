@@ -1,9 +1,9 @@
 # Laravel Role Permission Manager
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/prince/laravel-role-permission-manager.svg?style=flat-square)](https://packagist.org/packages/prince/laravel-role-permission-manager)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/prince/laravel-role-permission-manager/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/prince/laravel-role-permission-manager/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/prince/laravel-role-permission-manager/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/prince/laravel-role-permission-manager/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/prince/laravel-role-permission-manager.svg?style=flat-square)](https://packagist.org/packages/prince/laravel-role-permission-manager)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/creativecrafts/laravel-role-permission-manager.svg?style=flat-square)](https://packagist.org/packages/creativecrafts/laravel-role-permission-manager)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/creativecrafts/laravel-role-permission-manager/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/creativecrafts/laravel-role-permission-manager/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/creativecrafts/laravel-role-permission-manager/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/creativecrafts/laravel-role-permission-manager/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/creativecrafts/laravel-role-permission-manager.svg?style=flat-square)](https://packagist.org/packages/creativecrafts/laravel-role-permission-manager)
 
 Laravel Role Permission Manager is a powerful yet simple package designed to streamline the management of roles and
 permissions in Laravel applications. It provides an intuitive interface for creating, assigning, and managing user roles
@@ -81,20 +81,20 @@ complex multi-tenant application with granular permissions, Laravel Role Permiss
 1. Install the package via Composer:
 
 ```bash
-composer require prince/laravel-role-permission-manager
+composer require creativecrafts/laravel-role-permission-manager
 ```
 
 2. Publish and run the migrations:
 
 ```bash
-php artisan vendor:publish --tag="laravel-role-permission-manager-migrations"
+php artisan vendor:publish --tag="role-permission-manager-migrations"
 php artisan migrate
 ```
 
 3. Optionally, publish the config file:
 
 ```bash
-php artisan vendor:publish --tag="laravel-role-permission-manager-config"
+php artisan vendor:publish --tag="role-permission-manager-config"
 ```
 
 ### Configuration
@@ -666,21 +666,20 @@ composer test
 
 ## Changelog
 
-Please see CHANGELOG for more information on what has changed recently.
+Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
 
 ## Contributing
 
-Please see CONTRIBUTING for details.
+Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
 
 ## Security Vulnerabilities
 
-If you discover any security related issues, please email creativecraftssolutions@gmail.com instead of using the issue
-tracker.
+Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
 
 ## Credits
 
-    - Godspower Oduose
-    - All Contributors
+    - [Godspower Oduose](https://github.com/rockblings)
+    - [All Contributors](../../contributors)
 
 ## License
 
