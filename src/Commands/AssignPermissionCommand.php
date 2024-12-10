@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
+use CreativeCrafts\LaravelRolePermissionManager\Actions\CreateNewPermission;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionData;
 use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
@@ -26,10 +28,11 @@ class AssignPermissionCommand extends Command
             $permission = Permission::where('slug', $permissionName)->first();
 
             if (! $permission && $this->option('create-permission')) {
-                $permission = Permission::create([
-                    'name' => $permissionName,
-                    'slug' => $permissionName,
-                ]);
+                $permissionData = new PermissionData(
+                    name: $permissionName,
+                    slug: $permissionName,
+                );
+                $permission = (new CreateNewPermission($permissionData))();
                 $this->info("Permission '{$permissionName}' created.");
             } elseif (! $permission) {
                 $this->error("Permission '{$permissionName}' not found.");

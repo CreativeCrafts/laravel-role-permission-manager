@@ -8,6 +8,7 @@ use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Exception;
 use Illuminate\Console\Command;
+use function Laravel\Prompts\text;
 
 class CreateRoleCommand extends Command
 {
@@ -30,9 +31,34 @@ class CreateRoleCommand extends Command
     public function handle(): int
     {
         $name = $this->argument('name');
+        if (! $name) {
+            $name = text(
+                'Enter the name of the role',
+                required: '* Role name is required',
+            );
+        }
         $slug = $this->argument('slug');
+        if (! $slug) {
+            $slug = text(
+                'Enter the slug of the role',
+                required: '* Role slug is required',
+            );
+        }
         $description = $this->argument('description');
+
+        if (! $description) {
+            $description = text(
+                'Enter the description of the role',
+                hint: 'Optional',
+            );
+        }
         $parentSlug = $this->option('parent');
+        if (! $parentSlug) {
+            $parentSlug = text(
+                'Enter the slug of the parent role',
+                hint: 'Optional',
+            );
+        }
 
         try {
             $parentRole = null;

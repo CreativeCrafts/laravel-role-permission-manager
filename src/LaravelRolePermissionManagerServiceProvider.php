@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CreativeCrafts\LaravelRolePermissionManager;
 
 use CreativeCrafts\LaravelRolePermissionManager\Commands\AssignPermissionCommand;
+use CreativeCrafts\LaravelRolePermissionManager\Commands\AssignRoleCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\CreatePermissionCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\CreateRoleCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\ListRolesPermissionsCommand;
@@ -69,8 +70,14 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
                 ListRolesPermissionsCommand::class,
                 RemovePermissionCommand::class,
                 SyncPermissionsCommand::class,
+                AssignRoleCommand::class,
             ])
+            ->hasAssets()
             ->publishesServiceProvider('AuthServiceProvider');
+
+        $this->publishes([
+            __DIR__ . '/../resources/js' => resource_path('js/vendor/laravel-role-permission-manager'),
+        ], 'laravel-role-permission-manager-typescript');
     }
 
     /**

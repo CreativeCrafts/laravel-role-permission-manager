@@ -30,23 +30,9 @@ class HandleInertiaRequests
     {
         $response = $next($request);
 
-        if ($this->isInertiaRequest($request)) {
-            $this->sharePermissions($request);
-        }
+        $this->sharePermissions($request);
 
         return $response;
-    }
-
-    /**
-     * Determine if the request is an Inertia request.
-     * This method checks the 'X-Inertia' header to identify Inertia requests.
-     *
-     * @param Request $request The incoming HTTP request
-     * @return bool True if it's an Inertia request, false otherwise
-     */
-    private function isInertiaRequest(Request $request): bool
-    {
-        return $request->header('X-Inertia') === 'true';
     }
 
     /**
@@ -83,8 +69,15 @@ class HandleInertiaRequests
             return [];
         }
 
-        return Cache::remember("user_permissions_{$user->id}", now()->addMinutes(60), static function () use ($user) {
-            return $user->getAllPermissions()->pluck('slug')->toArray();
+        $cacheKey = "user_permissions_{$user->id}";
+
+        return Cache::remember($cacheKey, now()->addMinutes(60), static function () use ($user) {
+            return $user->getAllPermissions()->map(function ($permission): array {
+                return [
+                    'slug' => $permission->slug,
+                    'scope' => $permission->scope ?? null,
+                ];
+            })->toArray();
         });
     }
 }

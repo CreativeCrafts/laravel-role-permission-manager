@@ -109,7 +109,7 @@ return [
     |
     | This is the name of the super admin role. Users with this role will have all permissions.
     */
-    'super_admin_role' => 'super-admin',
+    'super_admin_role' => 'Super Admin',
 
     /*
     |--------------------------------------------------------------------------

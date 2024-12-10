@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * Represents a role in the application's authorization system.
@@ -25,6 +30,8 @@ use Illuminate\Support\Str;
  */
 class Role extends Model
 {
+    use HasFactory;
+
     /**
      * The attributes that are mass assignable.
      *
@@ -39,6 +46,9 @@ class Role extends Model
     {
         parent::__construct($attributes);
         $this->table = config('role-permission-manager.roles_table');
+        if (! isset($this->attributes['slug']) && isset($this->attributes['name'])) {
+            $this->attributes['slug'] = Str::slug($this->attributes['name']);
+        }
     }
 
     /**
@@ -71,7 +81,14 @@ class Role extends Model
      */
     public function getAllChildren(): Collection
     {
-        return $this->children()->with('children')->get();
+        $allChildren = new Collection();
+
+        foreach ($this->children as $child) {
+            $allChildren->push($child);
+            $allChildren = $allChildren->merge($child->getAllChildren());
+        }
+
+        return $allChildren;
     }
 
     /**
@@ -104,8 +121,7 @@ class Role extends Model
      */
     public function permissions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class)
-            ->using(config('role-permission-manager.role_permission_table'));
+        return $this->belongsToMany(Permission::class, config('role-permission-manager.role_permission_table'));
     }
 
     /**
@@ -130,6 +146,31 @@ class Role extends Model
         return $this->attributes['slug'] ?? Str::slug($this->name ?? '');
     }
 
+    public function givePermissionTo($permission): void
+    {
+        if (is_string($permission)) {
+            $permissionModel = Permission::where('name', $permission)
+                ->orWhere('slug', $permission)
+                ->first();
+
+            if (! $permissionModel) {
+                if (Config::get('role-permission-manager.auto_create_permissions', false)) {
+                    $permissionModel = Permission::create([
+                        'name' => $permission,
+                    ]);
+                } else {
+                    throw new ModelNotFoundException("Permission '$permission' does not exist.");
+                }
+            }
+            $permission = $permissionModel;
+        }
+
+        if (! $permission instanceof Permission) {
+            throw new InvalidArgumentException('The permission must be a string or a Permission object.');
+        }
+        $this->permissions()->syncWithoutDetaching([$permission->id]);
+    }
+
     /**
      * Boot the model.
      */
@@ -137,10 +178,33 @@ class Role extends Model
     {
         parent::boot();
 
-        static::creating(static function ($role): void {
-            if (! $role->slug) {
+        static::saving(static function (self $role): void {
+            if (empty($role->slug) && ! empty($role->name)) {
                 $role->slug = Str::slug($role->name);
             }
         });
+    }
+
+    /**
+     * Define the slug attribute for the Permission model.
+     * This method creates an Attribute instance for the slug field, providing custom
+     * getter and setter logic. The getter returns an empty string if the slug is null,
+     * while the setter generates a slug from the name if the provided value is null or empty.
+     *
+     * @return Attribute The Attribute instance for the slug field.
+     */
+    protected function slug(): Attribute
+    {
+        return Attribute::make(
+            get: static fn ($value) => $value ?: '',
+            set: function ($value) {
+                if ($value === null) {
+                    // @pest-mutate-ignore
+                    return Str::slug($this->name ?: '');
+                }
+                // @pest-mutate-ignore
+                return $value ?: Str::slug($this->name ?: '');
+            }
+        );
     }
 }

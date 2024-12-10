@@ -34,7 +34,7 @@ interface AuthenticatableWithRolesAndPermissions extends Authenticatable
 
     public function hasAnyPermission(array $permissions, ?string $scope = null): bool;
 
-    public function isSuperAdmin(): bool;
+    public function hasSuperAdminRole(): bool;
 
     public function hasRole(Role|string $role): bool;
 

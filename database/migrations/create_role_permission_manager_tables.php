@@ -27,7 +27,7 @@ return new class () extends Migration {
         Schema::create(config('role-permission-manager.permissions_table'), function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('slug');
+            $table->string('slug')->nullable();
             $table->string('scope')->nullable();
             $table->text('description')->nullable();
             $table->timestamps();
@@ -67,6 +67,21 @@ return new class () extends Migration {
 
             $table->unique(['permission_id', 'role_id']);
         });
+
+        // Create user_permission table
+        Schema::create(config('role-permission-manager.user_permission_table'), function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('permission_id');
+            $table->unsignedBigInteger('user_id');
+            $table->timestamps();
+
+            $table->foreign('permission_id')->references('id')->on(
+                config('role-permission-manager.permissions_table')
+            )->onDelete('cascade');
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+
+            $table->unique(['permission_id', 'user_id']);
+        });
     }
 
     public function down(): void
@@ -75,5 +90,6 @@ return new class () extends Migration {
         Schema::dropIfExists(config('role-permission-manager.user_role_table'));
         Schema::dropIfExists(config('role-permission-manager.permissions_table'));
         Schema::dropIfExists(config('role-permission-manager.roles_table'));
+        Schema::dropIfExists(config('role-permission-manager.user_permission_table'));
     }
 };

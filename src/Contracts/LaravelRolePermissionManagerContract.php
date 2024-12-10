@@ -19,8 +19,8 @@ interface LaravelRolePermissionManagerContract
     public function createPermission(
         string $name,
         string $slug,
-        ?string $scope = null,
-        ?string $description = null
+        ?string $description = null,
+        ?string $scope = null
     ): Permission;
 
     public function getAllRoles(): Collection;

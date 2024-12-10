@@ -38,7 +38,8 @@
     "autoload": {
         "psr-4": {
             "CreativeCrafts\\LaravelRolePermissionManager\\": "src/",
-            "CreativeCrafts\\LaravelRolePermissionManager\\Database\\Factories\\": "database/factories/"
+            "CreativeCrafts\\LaravelRolePermissionManager\\Database\\Factories\\": "database/factories/",
+            "CreativeCrafts\\LaravelRolePermissionManager\\Tests\\": "tests/"
         }
     },
     "autoload-dev": {

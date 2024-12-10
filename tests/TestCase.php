@@ -19,17 +19,16 @@ class TestCase extends Orchestra
         );
     }
 
-    public function getEnvironmentSetUp($app)
+    public function getEnvironmentSetUp($app): void
     {
         config()->set('database.default', 'testing');
+        $app['config']->set('role-permission-manager', require __DIR__ . '/../config/role-permission-manager.php');
 
-        /*
-        $migration = include __DIR__.'/../database/migrations/create_laravel-role-permission-manager_table.php.stub';
+        $migration = include __DIR__ . '/../database/migrations/create_role_permission_manager_tables.php';
         $migration->up();
-        */
     }
 
-    protected function getPackageProviders($app)
+    protected function getPackageProviders($app): array
     {
         return [
             LaravelRolePermissionManagerServiceProvider::class,

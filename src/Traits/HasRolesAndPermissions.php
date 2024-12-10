@@ -36,6 +36,7 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         $roleModel = $this->getRoleModel($role);
         $this->roles()->syncWithoutDetaching($roleModel);
+        app('laravel-role-permission-manager')->clearUserRoleCache($this);
     }
 
     /**
@@ -135,6 +136,56 @@ trait HasRolesAndPermissions
     }
 
     /**
+     * Retrieve the roles associated with a user.
+     * This method fetches all roles assigned to a specified user or the current user if no user is provided.
+     * It delegates the actual role retrieval to the 'laravel-role-permission-manager' service.
+     *
+     * @param mixed $user Optional. The user whose roles are to be retrieved. If null, the current user's roles will be fetched.
+     * @return Collection A collection of Role models associated with the user.
+     * @throws LogicException If the trait is not used on an Eloquent model.
+     */
+    public function getUserRoles(mixed $user): Collection
+    {
+        $this->ensureCorrectUsage();
+        $selectedUser = $user ?? $this;
+        return app('laravel-role-permission-manager')->getUserRoles($selectedUser);
+    }
+
+    /**
+     * Retrieve the names of all roles assigned to the user.
+     * This method fetches the names of all roles associated with the current user
+     * by delegating the task to the 'laravel-role-permission-manager' service.
+     * It ensures that the trait is being used correctly before making the call.
+     *
+     * @param mixed $user Optional. The user whose role names are to be retrieved. If null, the current user's role names will be fetched.
+     * @return Collection A collection of role names (strings) associated with the user.
+     * @throws LogicException If the trait is not used on an Eloquent model.
+     */
+    public function getUserRoleNames(mixed $user): Collection
+    {
+        $this->ensureCorrectUsage();
+        $selectedUser = $user ?? $this;
+        return app('laravel-role-permission-manager')->getRoleNames($selectedUser);
+    }
+
+    /**
+     * Retrieve the slugs of all roles assigned to the user.
+     * This method fetches the slugs of all roles associated with the current user
+     * by delegating the task to the 'laravel-role-permission-manager' service.
+     * It ensures that the trait is being used correctly before making the call.
+     *
+     * @param mixed $user Optional. The user whose role slugs are to be retrieved. If null, the current user's role slugs will be fetched.
+     * @return Collection A collection of role slugs (strings) associated with the user.
+     * @throws LogicException If the trait is not used on an Eloquent model.
+     */
+    public function getUserRoleSlugs(mixed $user): Collection
+    {
+        $this->ensureCorrectUsage();
+        $selectedUser = $user ?? $this;
+        return app('laravel-role-permission-manager')->getRoleSlugs($selectedUser);
+    }
+
+    /**
      * Check if the model has any of the given roles.
      * This method determines whether the model instance has at least one of the specified roles.
      * It takes into account the case sensitivity configuration for permissions.
@@ -147,11 +198,17 @@ trait HasRolesAndPermissions
     {
         $this->ensureCorrectUsage();
         $query = $this->roles();
+
         if (! Config::get('role-permission-manager.case_sensitive_permissions')) {
-            $query->whereRaw('LOWER(slug) IN (?)', [array_map('strtolower', $roles)]);
+            $lowercaseRoles = array_map('strtolower', $roles);
+            $query->whereRaw(
+                'LOWER(slug) IN (' . implode(',', array_fill(0, count($lowercaseRoles), '?')) . ')',
+                $lowercaseRoles
+            );
         } else {
             $query->whereIn('slug', $roles);
         }
+
         return $query->exists();
     }
 
@@ -200,7 +257,7 @@ trait HasRolesAndPermissions
     public function hasPermissionTo(Permission|string $permission, ?string $scope = null): bool
     {
         $this->ensureCorrectUsage();
-        if ($this->isSuperAdmin()) {
+        if ($this->hasSuperAdminRole()) {
             return true;
         }
         return app('laravel-role-permission-manager')->hasPermissionTo($this, $permission, $scope);
@@ -214,7 +271,7 @@ trait HasRolesAndPermissions
      * @return bool Returns true if the model has the super admin role, false otherwise.
      * @throws LogicException If the trait is not used on an Eloquent model.
      */
-    public function isSuperAdmin(): bool
+    public function hasSuperAdminRole(): bool
     {
         $this->ensureCorrectUsage();
         return $this->hasRole(Config::get('role-permission-manager.super_admin_role'));
@@ -235,11 +292,20 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         if (is_string($role)) {
             $query = $this->roles();
-            if (! Config::get('role-permission-manager.case_sensitive_permissions')) {
-                $query->whereRaw('LOWER(slug) = ?', [strtolower($role)]);
+            $caseSensitive = Config::get('role-permission-manager.case_sensitive_permissions');
+
+            if (! $caseSensitive) {
+                $query->where(function ($q) use ($role): void {
+                    $q->whereRaw('LOWER(slug) = ?', [strtolower($role)])
+                        ->orWhereRaw('LOWER(name) = ?', [strtolower($role)]);
+                });
             } else {
-                $query->where('slug', $role);
+                $query->where(function ($q) use ($role): void {
+                    $q->where('slug', $role)
+                        ->orWhere('name', $role);
+                });
             }
+
             return $query->exists();
         }
         return $this->roles->contains($role);
