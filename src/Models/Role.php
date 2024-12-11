@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionArgumentException;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
-use InvalidArgumentException;
 
 /**
  * Represents a role in the application's authorization system.
@@ -166,7 +166,7 @@ class Role extends Model
         }
 
         if (! $permission instanceof Permission) {
-            throw new InvalidArgumentException('The permission must be a string or a Permission object.');
+            throw new InvalidPermissionArgumentException();
         }
         $this->permissions()->syncWithoutDetaching([$permission->id]);
     }
