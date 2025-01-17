@@ -102,7 +102,7 @@ php artisan vendor:publish --tag="role-permission-manager-config"
 To use the TypeScript helper files in your application, you can publish them using the following command:
 
 ```bash
-php artisan vendor:publish --tag=laravel-role-permission-manager-typescript
+php artisan vendor:publish --tag="laravel-role-permission-manager-typescript"
 ```
 
 ### Configuration

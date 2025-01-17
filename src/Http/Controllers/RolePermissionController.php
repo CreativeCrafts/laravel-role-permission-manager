@@ -4,18 +4,27 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Http\Controllers;
 
+use CreativeCrafts\LaravelRolePermissionManager\Helpers\ClassExistsWrapper;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Config;
+use RuntimeException;
 
 /**
  * This controller manages operations related to roles and permissions in the Laravel Role Permission Manager.
  */
 class RolePermissionController extends Controller
 {
+    private ClassExistsWrapper $classExistsWrapper;
+
+    public function __construct(ClassExistsWrapper $classExistsWrapper = null)
+    {
+        $this->classExistsWrapper = $classExistsWrapper ?? new ClassExistsWrapper();
+    }
+
     /**
      * Retrieve all roles.
      *
@@ -98,6 +107,11 @@ class RolePermissionController extends Controller
     {
         $modelClass = Config::get('role-permission-manager.user_model')
             ?? Config::get('auth.providers.users.model', 'App\Models\User');
-        return class_exists($modelClass) ? $modelClass : 'App\Models\User';
+
+        if (! $this->classExistsWrapper->exists($modelClass)) {
+            throw new RuntimeException("Configured user model '{$modelClass}' does not exist.");
+        }
+
+        return $modelClass;
     }
 }

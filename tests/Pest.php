@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\TestCase;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -39,6 +40,7 @@ function setUpTableSchema(): void
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
+            $table->string('scope')->nullable();
         });
     }
 
@@ -59,4 +61,9 @@ function setUpTableSchema(): void
             $table->foreignId('permission_id')->constrained('permissions')->onDelete('cascade');
         });
     }
+}
+
+function createTestUser(): TestUser
+{
+    return TestUser::factory()->create();
 }

@@ -270,27 +270,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
 
         if (app()->environment('development') || app()->environment('local')) {
             $this->clearPermissionCache($cacheKey);
-            Log::info('Clearing permission cache for user ID: ' . $userId);
         }
 
         return Cache::remember($cacheKey, now()->addMinutes(60), function () use ($user) {
             if ($this->isSuperAdmin($user)) {
-                Log::info('User is Super Admin. Granting all permissions.');
                 return Permission::all();
             }
 
             $directPermissions = $user->permissions()->get();
             $userRoles = $user->roles()->get();
-            Log::info('User roles:', $userRoles->toArray());
 
             $rolePermissions = $userRoles->map(function ($role) {
                 $permissions = $role->getAllPermissions();
                 Log::info("Permissions for role {$role->name}:", $permissions->toArray());
                 return $permissions;
             })->flatten();
-
-            Log::info('Direct permissions:', $directPermissions->toArray());
-            Log::info('Role permissions:', $rolePermissions->toArray());
             return $directPermissions->concat($rolePermissions)->unique('id');
         });
     }
