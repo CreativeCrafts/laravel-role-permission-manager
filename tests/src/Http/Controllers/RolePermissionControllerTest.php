@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 
+covers(RolePermissionController::class);
+
 beforeEach(function () {
     setUpTableSchema();
     $this->controller = new RolePermissionController();
@@ -33,10 +35,10 @@ it('retrieves all roles', function () {
 
 it('retrieves permissions for a given scope', function () {
     $scope = 'test-scope';
-    $permissions = [
+    $permissions = collect([
         ['name' => 'Permission 1', 'slug' => 'permission-1'],
         ['name' => 'Permission 2', 'slug' => 'permission-2'],
-    ];
+    ]);
 
     $request = Request::create('/', 'GET', ['scope' => $scope]);
     $this->manager->shouldReceive('getAllPermissionsForScope')
@@ -47,7 +49,7 @@ it('retrieves permissions for a given scope', function () {
     $response = $this->controller->getPermissions($request, $this->manager);
 
     expect($response->getStatusCode())->toBe(200)
-        ->and(json_decode($response->getContent(), true))->toBe($permissions);
+        ->and(json_decode($response->getContent(), true))->toMatchArray($permissions->toArray());
 });
 
 it('retrieves roles for a specific user', function () {
@@ -64,37 +66,46 @@ it('retrieves roles for a specific user', function () {
 
 it('retrieves all permissions for a specific user', function () {
     $user = createTestUser();
-    $permissions = [
+    $permissions = collect([
         ['name' => 'Permission 1', 'slug' => 'permission-1'],
         ['name' => 'Permission 2', 'slug' => 'permission-2'],
-    ];
+    ]);
 
     $this->manager->shouldReceive('getAllPermissionsForUser')
-        ->with($user)
+        ->with(
+            Mockery::on(function ($arg) use ($user) {
+                return $arg->id === $user->id;
+            })
+        )
         ->once()
         ->andReturn($permissions);
 
     $response = $this->controller->getUserPermissions($user->id, new Request(), $this->manager);
+    $decodedResponse = json_decode($response->getContent(), true);
+    $permissions = $permissions->toArray();
 
     expect($response->getStatusCode())->toBe(200)
-        ->and(json_decode($response->getContent(), true))->toBe($permissions);
+        ->and($decodedResponse)->toMatchArray($permissions);
 });
 
 it('retrieves scoped permissions for a specific user', function () {
     $user = createTestUser();
     $scope = 'test-scope';
-    $permissions = Permission::factory(3)->create([
+    $permission = Permission::factory()->create([
         'scope' => $scope
     ]);
 
-    $user->givePermissionTo($permissions, $scope);
-    dd($user->getAllPermissions());
+    $user->givePermissionTo($permission, $scope);
 
     $response = $this->controller->getScopedPermissions($user->id, $scope);
-    dd($response);
+    $decodedResponse = json_decode($response->getContent(), true)[0];
 
     expect($response->getStatusCode())->toBe(200)
-        ->and(json_decode($response->getContent(), true))->toBe($permissions);
+        ->and($decodedResponse['id'])->toBe($permission->getAttribute('id'))
+        ->and($decodedResponse['scope'])->toBe($scope)
+        ->and($decodedResponse['name'])->toBe($permission->getAttribute('name'))
+        ->and($decodedResponse['slug'])->toBe($permission->getAttribute('slug'))
+        ->and($decodedResponse['description'])->toBe($permission->getAttribute('description'));
 });
 
 it('throws an exception when user is not found', function () {

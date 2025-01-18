@@ -2,7 +2,7 @@
 
 All notable changes to `laravel-role-permission-manager` will be documented in this file.
 
-# Laravel Role Permission Manager v1.0.0 - 2025-01-17
+# v1.0.0 - 2025-01-17
 
 Initial release of the Laravel Role Permission Manager package, providing a robust and flexible role-based access control (RBAC) system for Laravel applications.
 
@@ -43,3 +43,22 @@ Initial release of the Laravel Role Permission Manager package, providing a robu
 - Laravel service provider integration
 
 This release provides a solid foundation for managing roles and permissions in Laravel applications with a focus on reliability, ease of use, and thorough testing.
+
+## v1.0.1 - 2025-01-18
+
+Enhance test coverage and code improvements
+
+- Add comprehensive tests for LaravelRolePermissionManagerServiceProvider
+- Improve test coverage for LaravelRolePermissionManager
+- Refactor environment checks to use Config::string
+- Fix test assertions for collection comparisons
+- Update RolePermissionController tests for better coverage
+- Add @covers annotations for better test documentation
+- Remove debug statements and clean up test code
+- Fix user permission retrieval tests with proper mocking
+- Convert arrays to collections for consistent testing
+- Add test cases for cache clearing and permission management
+- Add test cases for role hierarchy management
+- Add test cases for wildcard permissions and environment-specific behavior
+
+These changes significantly improve the test coverage and reliability of the package while making the codebase more maintainable and consistent.

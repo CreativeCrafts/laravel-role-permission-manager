@@ -15,6 +15,7 @@ use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -268,7 +269,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         $userId = $user->getAuthIdentifier();
         $cacheKey = "user_permissions_{$userId}";
 
-        if (app()->environment('development') || app()->environment('local')) {
+        if (Config::string('app.env') === 'development' || Config::string('app.env') === 'local') {
             $this->clearPermissionCache($cacheKey);
         }
 
