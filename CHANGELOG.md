@@ -143,3 +143,7 @@ Enhance test coverage and code improvements
 - Add test cases for wildcard permissions and environment-specific behavior
 
 These changes significantly improve the test coverage and reliability of the package while making the codebase more maintainable and consistent.
+
+## v1.0.2 -2025-03-03
+
+- Add support for Laravel 12
