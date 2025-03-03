@@ -70,12 +70,12 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
     }
 
     /**
-     * Retrieve all permissions associated with a specific role.
-     * This method fetches all permissions that are directly assigned to the given role,
-     * as well as permissions inherited from parent roles in a hierarchical structure.
+     * Get all permissions associated with a role.
+     * This method retrieves all permissions that are directly assigned to the role
+     * or inherited from parent roles.
      *
-     * @param Role $role The role object for which to retrieve permissions.
-     * @return Collection A collection of Permission objects associated with the role.
+     * @param Role $role The role to get permissions for
+     * @return Collection<int, Permission> A collection of Permission models
      */
     public function getAllPermissionsForRole(Role $role): Collection
     {
@@ -121,13 +121,16 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * for improved performance. The cache duration is determined by the
      * configured cache expiration time.
      *
-     * @return Collection A collection of all Role models in the system.
+     * @return Collection<int, Role> A collection of all Role models in the system.
      */
     public function getAllRoles(): Collection
     {
-        return Cache::remember('all_roles', $this->getCacheExpirationTime(), function () {
+        /** @var Collection<int, Role> $roles */
+        $roles = Cache::remember('all_roles', $this->getCacheExpirationTime(), static function () {
             return Role::all();
         });
+
+        return $roles;
     }
 
     /**
@@ -136,13 +139,16 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * for improved performance. The cache duration is determined by the
      * configured cache expiration time.
      *
-     * @return Collection A collection of all Permission models in the system.
+     * @return Collection<int, Permission> A collection of all Permission models in the system.
      */
     public function getAllPermissions(): Collection
     {
-        return Cache::remember('all_permissions', $this->getCacheExpirationTime(), function () {
+        /** @var Collection<int, Permission> $permissions */
+        $permissions = Cache::remember('all_permissions', $this->getCacheExpirationTime(), static function () {
             return Permission::all();
         });
+
+        return $permissions;
     }
 
     /**
@@ -261,8 +267,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param mixed $user The user object for which to retrieve permissions.
      *                    This should be an instance of a class that has
      *                    'permissions' and 'roles' relationships defined.
-     * @return Collection A collection of unique Permission objects associated with the user,
-     *                    including both direct and role-based permissions.
+     * @return Collection<int, Permission> A collection of unique Permission objects associated with the user,
+     *                                     including both direct and role-based permissions.
      */
     public function getAllPermissionsForUser(mixed $user): Collection
     {
@@ -273,7 +279,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             $this->clearPermissionCache($cacheKey);
         }
 
-        return Cache::remember($cacheKey, now()->addMinutes(60), function () use ($user) {
+        /** @var Collection<int, Permission> $permissions */
+        $permissions = Cache::remember($cacheKey, now()->addMinutes(60), function () use ($user) {
             if ($this->isSuperAdmin($user)) {
                 return Permission::all();
             }
@@ -288,6 +295,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             })->flatten();
             return $directPermissions->concat($rolePermissions)->unique('id');
         });
+
+        return $permissions;
     }
 
     /**
@@ -495,7 +504,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     private function getCacheExpirationTime(): int
     {
-        return config('role-permission-manager.cache_expiration_time', 60);
+        return Config::integer('role-permission-manager.cache_expiration_time', 60);
     }
 
     /**

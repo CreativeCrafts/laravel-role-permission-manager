@@ -16,6 +16,15 @@ final readonly class PermissionData implements DataTransferObjectContract
     ) {
     }
 
+    /**
+     * Convert the permission data to an array.
+     * This method transforms the permission data object into an associative array
+     * representation that can be used for API responses, database operations, or
+     * other data processing needs.
+     *
+     * @return array<string, string|null> An array containing the permission data with keys:
+     *                                   'name', 'slug', 'description', and 'scope'
+     */
     public function toArray(): array
     {
         return [

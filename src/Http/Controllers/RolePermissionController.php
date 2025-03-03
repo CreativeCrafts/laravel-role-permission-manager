@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Http\Controllers;
 
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
 use CreativeCrafts\LaravelRolePermissionManager\Helpers\ClassExistsWrapper;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
@@ -45,6 +46,7 @@ class RolePermissionController extends Controller
      */
     public function getPermissions(Request $request, LaravelRolePermissionManager $manager): JsonResponse
     {
+        /** @var string|null $scope */
         $scope = $request->query('scope');
         $permissions = $manager->getAllPermissionsForScope($scope);
         return response()->json($permissions);
@@ -59,8 +61,9 @@ class RolePermissionController extends Controller
     public function getUserRoles(int|string $userId): JsonResponse
     {
         $userModel = $this->getUserModel();
+        /** @var AuthenticatableWithRolesAndPermissions $user */
         $user = $userModel::findOrFail($userId);
-        $roles = $user->roles;
+        $roles = $user->roles()->get();
         return response()->json($roles);
     }
 
@@ -93,6 +96,7 @@ class RolePermissionController extends Controller
     public function getScopedPermissions(int|string $userId, string $scope): JsonResponse
     {
         $userModel = $this->getUserModel();
+        /** @var AuthenticatableWithRolesAndPermissions $user */
         $user = $userModel::findOrFail($userId);
         $permissions = $user->getAllPermissions($scope);
         return response()->json($permissions);
@@ -106,12 +110,13 @@ class RolePermissionController extends Controller
     private function getUserModel(): string
     {
         $modelClass = Config::get('role-permission-manager.user_model')
-            ?? Config::get('auth.providers.users.model', 'App\Models\User');
+            ?? Config::string('auth.providers.users.model', 'App\Models\User');
 
         if (! $this->classExistsWrapper->exists($modelClass)) {
             throw new RuntimeException("Configured user model '{$modelClass}' does not exist.");
         }
 
+        /** @var class-string $modelClass */
         return $modelClass;
     }
 }
