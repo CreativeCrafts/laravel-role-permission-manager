@@ -153,3 +153,7 @@ These changes significantly improve the test coverage and reliability of the pac
 ## v1.0.2 -2025-03-03
 
 - Add support for Laravel 12
+
+## v1.0.3 - 2026-04-09
+
+- Remove unused view registration from package setup

@@ -60,7 +60,6 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
         $package
             ->name('laravel-role-permission-manager')
             ->hasConfigFile()
-            ->hasViews()
             ->hasMigrations(['create_role_permission_manager_tables'])
             ->hasCommands([
                 CreateRoleCommand::class,
