@@ -2,6 +2,10 @@
 
 All notable changes to `laravel-role-permission-manager` will be documented in this file.
 
+## 1.0.3 - 2026-04-09
+
+remove unused view registration from package setup
+
 ## 1.0.2 - 2025-03-03
 
 ### v1.0.2 -2025-03-03
