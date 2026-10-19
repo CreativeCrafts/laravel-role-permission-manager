@@ -252,6 +252,53 @@ it('matches user pivot columns to a string user primary key', function () {
         ->and($permissionPivot['type_name'])->toBe($userKey['type_name']);
 });
 
+it('matches user pivot columns to an unsigned integer user primary key', function () {
+    Schema::create('increment_users', function (Blueprint $table): void {
+        $table->increments('id');
+        $table->string('name');
+    });
+    Config::set([
+        'role-permission-manager.users_table' => 'increment_users',
+        'role-permission-manager.user_model_key' => 'id',
+        'role-permission-manager.roles_table' => 'increment_roles',
+        'role-permission-manager.permissions_table' => 'increment_permissions',
+        'role-permission-manager.user_role_table' => 'increment_user_roles',
+        'role-permission-manager.role_permission_table' => 'increment_role_permissions',
+        'role-permission-manager.user_permission_table' => 'increment_user_permissions',
+    ]);
+    $migration = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+
+    $migration->up();
+
+    $userKey = collect(Schema::getColumns('increment_users'))->firstWhere('name', 'id');
+    $rolePivot = collect(Schema::getColumns('increment_user_roles'))->firstWhere('name', 'user_id');
+
+    expect($rolePivot['type_name'])->toBe($userKey['type_name']);
+});
+
+it('recomputes identity keys when permissions are bulk updated', function () {
+    $permission = Permission::factory()->create([
+        'name' => 'old name',
+        'slug' => 'old-name',
+        'scope' => null,
+    ]);
+    $originalNameKey = $permission->name_scope_key;
+    $originalSlugKey = $permission->slug_scope_key;
+
+    Permission::query()->whereKey($permission->getKey())->update([
+        'name' => 'new name',
+        'slug' => 'new-name',
+        'scope' => 'team',
+    ]);
+    $fresh = $permission->fresh();
+
+    expect($fresh->name)->toBe('new name')
+        ->and($fresh->slug)->toBe('new-name')
+        ->and($fresh->scope)->toBe('team')
+        ->and($fresh->name_scope_key)->not->toBe($originalNameKey)
+        ->and($fresh->slug_scope_key)->not->toBe($originalSlugKey);
+});
+
 it('reports read-only preflight blockers without changing rows', function () {
     $roleA = Role::factory()->create(['name' => 'shadow-slug', 'slug' => 'role-a']);
     $roleB = Role::factory()->create(['name' => 'Role B', 'slug' => 'shadow-slug']);

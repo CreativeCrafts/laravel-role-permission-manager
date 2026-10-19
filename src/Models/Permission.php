@@ -68,6 +68,11 @@ class Permission extends Model
         }
     }
 
+    public function newEloquentBuilder($query): PermissionQueryBuilder
+    {
+        return new PermissionQueryBuilder($query);
+    }
+
     /**
      * Get the roles that are associated with the permission.
      */

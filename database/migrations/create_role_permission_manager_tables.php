@@ -110,8 +110,22 @@ return new class () extends Migration {
             $definition = collect(Schema::getColumns($usersTable))->firstWhere('name', $userKey);
         }
 
-        $typeName = strtolower((string) ($definition['type_name'] ?? 'bigint'));
-        $length = $this->characterLength((string) ($definition['type'] ?? ''));
+        if ($definition === null) {
+            $table->unsignedBigInteger($column);
+
+            return;
+        }
+
+        $typeName = strtolower((string) ($definition['type_name'] ?? ''));
+        $type = strtolower((string) ($definition['type'] ?? ''));
+        $length = $this->characterLength($type);
+        $integerColumn = $this->integerColumnMethod($typeName, str_contains($type, 'unsigned'));
+
+        if ($integerColumn !== null) {
+            $table->{$integerColumn}($column);
+
+            return;
+        }
 
         if (in_array($typeName, ['uuid', 'guid'], true)) {
             $table->uuid($column);
@@ -138,6 +152,18 @@ return new class () extends Migration {
         }
 
         $table->unsignedBigInteger($column);
+    }
+
+    private function integerColumnMethod(string $typeName, bool $unsigned): ?string
+    {
+        return match ($typeName) {
+            'tinyint' => $unsigned ? 'unsignedTinyInteger' : 'tinyInteger',
+            'smallint' => $unsigned ? 'unsignedSmallInteger' : 'smallInteger',
+            'mediumint' => $unsigned ? 'unsignedMediumInteger' : 'mediumInteger',
+            'int', 'integer' => $unsigned ? 'unsignedInteger' : 'integer',
+            'bigint' => $unsigned ? 'unsignedBigInteger' : 'bigInteger',
+            default => null,
+        };
     }
 
     private function characterLength(string $type): ?int
