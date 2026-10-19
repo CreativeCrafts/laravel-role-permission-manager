@@ -112,6 +112,8 @@ it('runs the published migrations down in foreign-key-safe order and reinstalls'
     expect(Schema::hasColumn($permissions, 'slug_scope_key'))->toBeTrue()
         ->and($columns['name_scope_key']['nullable'])->toBeFalse()
         ->and($columns['slug_scope_key']['nullable'])->toBeFalse()
+        ->and($columns['name_scope_key']['default'])->toBeNull()
+        ->and($columns['slug_scope_key']['default'])->toBeNull()
         ->and(Schema::hasIndex($permissions, 'lprm_perm_name_scope_key_uq'))->toBeTrue()
         ->and(Schema::hasIndex($permissions, 'lprm_perm_slug_scope_key_uq'))->toBeTrue();
 });
@@ -184,6 +186,44 @@ it('completes identity indexes when the columns already exist', function () {
         ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_name_scope_key_uq'))->toBeTrue()
         ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_slug_scope_key_uq'))->toBeTrue()
         ->and(DB::table('legacy_permissions')->whereNull('name_scope_key')->doesntExist())->toBeTrue();
+});
+
+it('keeps distinct permission identities separate and reports only cyclic role ids', function () {
+    Permission::factory()->create([
+        'name' => 'x|scope:string:y',
+        'slug' => 'encoded-left',
+        'scope' => 'z',
+    ]);
+    Permission::factory()->create([
+        'name' => 'x',
+        'slug' => 'encoded-right',
+        'scope' => 'y|scope:string:z',
+    ]);
+
+    $this->artisan('role-permission:preflight')->assertSuccessful();
+
+    $prefix = Role::factory()->create(['name' => 'Prefix', 'slug' => 'prefix']);
+    $cycleStart = Role::factory()->create([
+        'name' => 'Cycle start',
+        'slug' => 'cycle-start',
+        'parent_id' => $prefix->id,
+    ]);
+    $cycleEnd = Role::factory()->create([
+        'name' => 'Cycle end',
+        'slug' => 'cycle-end',
+        'parent_id' => $cycleStart->id,
+    ]);
+    DB::table((string) config('role-permission-manager.roles_table'))
+        ->where('id', $cycleStart->id)
+        ->update(['parent_id' => $cycleEnd->id]);
+    $cycleIds = [$cycleStart->id, $cycleEnd->id];
+    sort($cycleIds);
+
+    $this->artisan('role-permission:preflight')
+        ->assertFailed()
+        ->expectsOutputToContain('[role-hierarchy-cycle] cycle (ids: ' . implode(',', $cycleIds) . ')')
+        ->doesntExpectOutputToContain('permission-duplicate')
+        ->doesntExpectOutputToContain((string) $prefix->id);
 });
 
 it('reports read-only preflight blockers without changing rows', function () {

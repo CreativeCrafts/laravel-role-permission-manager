@@ -23,13 +23,7 @@ return new class () extends Migration {
             );
         }
 
-        if (
-            $hasNameKey
-            && $hasSlugKey
-            && Schema::hasIndex($tableName, self::NAME_INDEX)
-            && Schema::hasIndex($tableName, self::SLUG_INDEX)
-            && $this->identityColumnsAreRequired($tableName)
-        ) {
+        if ($hasNameKey && $hasSlugKey && $this->identitySchemaIsComplete($tableName)) {
             return;
         }
 
@@ -143,9 +137,36 @@ return new class () extends Migration {
             return;
         }
 
-        if ($driver === 'sqlite' && ! $this->identityColumnsAreRequired($tableName)) {
+        if (
+            $driver === 'sqlite'
+            && (
+                ! $this->identityColumnsAreRequired($tableName)
+                || $this->identityColumnsHaveDefaults($tableName)
+            )
+        ) {
             $this->rebuildSqliteIdentityColumns($tableName);
         }
+    }
+
+    private function identitySchemaIsComplete(string $tableName): bool
+    {
+        return Schema::hasIndex($tableName, self::NAME_INDEX)
+            && Schema::hasIndex($tableName, self::SLUG_INDEX)
+            && $this->identityColumnsAreRequired($tableName)
+            && ! $this->identityColumnsHaveDefaults($tableName);
+    }
+
+    private function identityColumnsHaveDefaults(string $tableName): bool
+    {
+        $columns = collect(Schema::getColumns($tableName))->keyBy('name');
+
+        foreach (['name_scope_key', 'slug_scope_key'] as $column) {
+            if (($columns->get($column)['default'] ?? null) !== null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function identityColumnsAreRequired(string $tableName): bool
@@ -201,18 +222,23 @@ return new class () extends Migration {
         }
 
         foreach ($indexes as $index) {
-            if ($index['primary'] || str_starts_with($index['name'], 'sqlite_autoindex_')) {
+            if ($index['primary']) {
                 continue;
             }
 
-            Schema::table($tableName, function (Blueprint $table) use ($index): void {
+            $indexName = str_starts_with($index['name'], 'sqlite_autoindex_') ? null : $index['name'];
+            Schema::table($tableName, function (Blueprint $table) use ($index, $indexName): void {
                 if ($index['unique']) {
-                    $table->unique($index['columns'], $index['name']);
+                    $indexName === null
+                        ? $table->unique($index['columns'])
+                        : $table->unique($index['columns'], $indexName);
 
                     return;
                 }
 
-                $table->index($index['columns'], $index['name']);
+                $indexName === null
+                    ? $table->index($index['columns'])
+                    : $table->index($index['columns'], $indexName);
             });
         }
     }

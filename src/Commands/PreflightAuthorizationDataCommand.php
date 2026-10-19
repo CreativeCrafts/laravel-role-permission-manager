@@ -53,9 +53,12 @@ final class PreflightAuthorizationDataCommand extends Command
         $groups = [];
 
         foreach (DB::table($table)->select(['id', 'name', 'slug', 'scope'])->orderBy('id')->cursor() as $row) {
-            $scope = $row->scope === null ? 'null' : 'string:' . $row->scope;
             foreach (['name', 'slug'] as $field) {
-                $identity = "{$field}:{$row->{$field}}|scope:{$scope}";
+                $identity = json_encode([
+                    'field' => $field,
+                    'value' => (string) $row->{$field},
+                    'scope' => $row->scope,
+                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 $groups[$identity][] = $row->id;
             }
         }
@@ -112,9 +115,11 @@ final class PreflightAuthorizationDataCommand extends Command
             $current = $start;
             while ($current !== null && array_key_exists($current, $parents)) {
                 if (isset($path[(string) $current])) {
+                    $orderedIds = array_keys($path);
+                    $cycleStart = array_search((string) $current, $orderedIds, true);
                     $cycleIds = array_map(
                         static fn (string $id): int|string => ctype_digit($id) ? (int) $id : $id,
-                        array_keys($path),
+                        array_slice($orderedIds, $cycleStart === false ? 0 : $cycleStart),
                     );
                     sort($cycleIds);
                     $cycles[implode(',', $cycleIds)] = $cycleIds;
