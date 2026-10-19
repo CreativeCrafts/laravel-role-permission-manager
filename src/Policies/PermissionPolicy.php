@@ -45,7 +45,8 @@ class PermissionPolicy
         if ($user->hasPermissionTo('view permissions')) {
             return true;
         }
-        return $user->hasPermissionTo($permission->name);
+
+        return $user->hasPermissionTo($permission);
     }
 
     /**

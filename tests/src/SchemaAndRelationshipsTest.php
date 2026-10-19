@@ -226,6 +226,32 @@ it('keeps distinct permission identities separate and reports only cyclic role i
         ->doesntExpectOutputToContain((string) $prefix->id);
 });
 
+it('matches user pivot columns to a string user primary key', function () {
+    Schema::create('uuid_users', function (Blueprint $table): void {
+        $table->uuid('id')->primary();
+        $table->string('name');
+    });
+    Config::set([
+        'role-permission-manager.users_table' => 'uuid_users',
+        'role-permission-manager.user_model_key' => 'id',
+        'role-permission-manager.roles_table' => 'uuid_roles',
+        'role-permission-manager.permissions_table' => 'uuid_permissions',
+        'role-permission-manager.user_role_table' => 'uuid_user_roles',
+        'role-permission-manager.role_permission_table' => 'uuid_role_permissions',
+        'role-permission-manager.user_permission_table' => 'uuid_user_permissions',
+    ]);
+    $migration = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+
+    $migration->up();
+
+    $userKey = collect(Schema::getColumns('uuid_users'))->firstWhere('name', 'id');
+    $rolePivot = collect(Schema::getColumns('uuid_user_roles'))->firstWhere('name', 'user_id');
+    $permissionPivot = collect(Schema::getColumns('uuid_user_permissions'))->firstWhere('name', 'user_id');
+
+    expect($rolePivot['type_name'])->toBe($userKey['type_name'])
+        ->and($permissionPivot['type_name'])->toBe($userKey['type_name']);
+});
+
 it('reports read-only preflight blockers without changing rows', function () {
     $roleA = Role::factory()->create(['name' => 'shadow-slug', 'slug' => 'role-a']);
     $roleB = Role::factory()->create(['name' => 'Role B', 'slug' => 'shadow-slug']);

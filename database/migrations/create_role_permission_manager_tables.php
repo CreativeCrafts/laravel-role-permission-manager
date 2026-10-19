@@ -40,7 +40,7 @@ return new class () extends Migration {
         Schema::create(config('role-permission-manager.user_role_table'), function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('role_id');
-            $table->unsignedBigInteger(config('role-permission-manager.user_foreign_key', 'user_id'));
+            $this->addUserForeignKey($table);
             $table->timestamps();
 
             $table->foreign('role_id')->references('id')->on(config('role-permission-manager.roles_table'))->onDelete(
@@ -75,7 +75,7 @@ return new class () extends Migration {
         Schema::create(config('role-permission-manager.user_permission_table'), function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('permission_id');
-            $table->unsignedBigInteger(config('role-permission-manager.user_foreign_key', 'user_id'));
+            $this->addUserForeignKey($table);
             $table->timestamps();
 
             $table->foreign('permission_id')->references('id')->on(
@@ -97,5 +97,55 @@ return new class () extends Migration {
         Schema::dropIfExists(config('role-permission-manager.user_role_table'));
         Schema::dropIfExists(config('role-permission-manager.permissions_table'));
         Schema::dropIfExists(config('role-permission-manager.roles_table'));
+    }
+
+    private function addUserForeignKey(Blueprint $table): void
+    {
+        $column = (string) config('role-permission-manager.user_foreign_key', 'user_id');
+        $usersTable = (string) config('role-permission-manager.users_table', 'users');
+        $userKey = (string) config('role-permission-manager.user_model_key', 'id');
+        $definition = null;
+
+        if (Schema::hasTable($usersTable) && Schema::hasColumn($usersTable, $userKey)) {
+            $definition = collect(Schema::getColumns($usersTable))->firstWhere('name', $userKey);
+        }
+
+        $typeName = strtolower((string) ($definition['type_name'] ?? 'bigint'));
+        $length = $this->characterLength((string) ($definition['type'] ?? ''));
+
+        if (in_array($typeName, ['uuid', 'guid'], true)) {
+            $table->uuid($column);
+
+            return;
+        }
+
+        if ($typeName === 'ulid') {
+            $table->ulid($column);
+
+            return;
+        }
+
+        if (in_array($typeName, ['char', 'bpchar'], true)) {
+            $table->char($column, $length ?? 36);
+
+            return;
+        }
+
+        if (in_array($typeName, ['varchar', 'string', 'character varying'], true)) {
+            $length === null ? $table->string($column) : $table->string($column, $length);
+
+            return;
+        }
+
+        $table->unsignedBigInteger($column);
+    }
+
+    private function characterLength(string $type): ?int
+    {
+        if (preg_match('/\((\d+)\)/', $type, $matches) !== 1) {
+            return null;
+        }
+
+        return (int) $matches[1];
     }
 };

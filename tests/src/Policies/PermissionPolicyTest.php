@@ -38,22 +38,19 @@ describe('viewAny method', function () {
 
 describe('view method', function () {
     it('allows viewing specific permission when user has general view permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(true);
         expect($this->policy->view($this->user, $this->permission))->toBeTrue();
     });
 
     it('allows viewing specific permission when user has that specific permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(true);
+        $this->user->shouldReceive('hasPermissionTo')->with($this->permission)->andReturn(true);
         expect($this->policy->view($this->user, $this->permission))->toBeTrue();
     });
 
     it('denies viewing specific permission when user lacks both general and specific permissions', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(false);
+        $this->user->shouldReceive('hasPermissionTo')->with($this->permission)->andReturn(false);
         expect($this->policy->view($this->user, $this->permission))->toBeFalse();
     });
 });
