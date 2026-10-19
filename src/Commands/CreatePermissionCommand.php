@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
-use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use Exception;
 use Illuminate\Console\Command;
 use function Laravel\Prompts\text;
@@ -18,6 +18,11 @@ class CreatePermissionCommand extends Command
                             {--scope= : The scope of the permission}';
 
     protected $description = 'Create a new permission';
+
+    public function __construct(private readonly LaravelRolePermissionManager $manager)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -46,15 +51,16 @@ class CreatePermissionCommand extends Command
         }
 
         $scope = $this->option('scope');
-        if (! $scope) {
-            $scope = text(
+        if ($scope === null) {
+            $scopeInput = text(
                 'Enter the scope of the permission',
                 hint: 'Optional',
             );
+            $scope = $scopeInput === '' ? null : $scopeInput;
         }
 
         try {
-            $permission = LaravelRolePermissionManager::createPermission($name, $slug, $description, $scope);
+            $permission = $this->manager->createPermission($name, $slug, $description, $scope);
             $this->info("Permission '{$permission->name}' created successfully.");
             return self::SUCCESS;
         } catch (Exception $e) {

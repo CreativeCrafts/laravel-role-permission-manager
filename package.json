@@ -1,0 +1,13 @@
+{
+  "name": "creativecrafts-laravel-role-permission-manager-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:frontend": "tsc -p tsconfig.frontend-build.json",
+    "test:frontend": "npm run build:frontend && node --test tests/frontend/permissions.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

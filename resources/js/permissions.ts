@@ -6,9 +6,9 @@
 /**
  * Represents a single permission with a slug and an optional scope.
  */
-interface Permission {
+export interface Permission {
     slug: string;
-    scope?: string;
+    scope?: string | null;
 }
 
 /**
@@ -23,21 +23,7 @@ declare global {
     }
 }
 
-/**
- * Memoized function to retrieve permissions.
- * This avoids repeated access to window.Laravel by caching the permissions.
- *
- * @returns {Permission[]} An array of Permission objects.
- */
-const memoizedPermissions = (() => {
-    let cachedPermissions: Permission[] | undefined;
-    return (): Permission[] => {
-        if (!cachedPermissions) {
-            cachedPermissions = window.Laravel?.permissions || [];
-        }
-        return cachedPermissions;
-    };
-})();
+const currentPermissions = (): Permission[] => window.Laravel?.permissions || [];
 
 /**
  * Check if the user has a specific permission.
@@ -47,13 +33,9 @@ const memoizedPermissions = (() => {
  * @returns {boolean} True if the user has the permission, false otherwise.
  */
 export function can(permission: string, scope: string | null = null): boolean {
-    const permissions = memoizedPermissions();
-
-    if (scope) {
-        return permissions.some(p => p.slug === permission && p.scope === scope);
-    } else {
-        return permissions.some(p => p.slug === permission);
-    }
+    return currentPermissions().some(
+        p => p.slug === permission && (scope === null ? (p.scope ?? null) === null : p.scope === scope),
+    );
 }
 
 /**
@@ -63,8 +45,7 @@ export function can(permission: string, scope: string | null = null): boolean {
  * @returns {Permission[]} An array of Permission objects matching the given scope.
  */
 export function getScopedPermissions(scope: string): Permission[] {
-    const permissions = memoizedPermissions();
-    return permissions.filter(p => p.scope === scope);
+    return currentPermissions().filter(p => p.scope === scope);
 }
 
 /**
@@ -74,8 +55,7 @@ export function getScopedPermissions(scope: string): Permission[] {
  * @returns {boolean} True if the user has any permission in the given scope, false otherwise.
  */
 export function hasAnyPermissionInScope(scope: string): boolean {
-    const permissions = memoizedPermissions();
-    return permissions.some(p => p.scope === scope);
+    return currentPermissions().some(p => p.scope === scope);
 }
 
 /**
@@ -105,7 +85,8 @@ export function hasAnyPermission(permissionSlugs: string[]): boolean {
  * @returns {string[]} An array of unique scope strings.
  */
 export function getAllScopes(): string[] {
-    const permissions = memoizedPermissions();
-    const scopes = permissions.map(p => p.scope).filter((scope): scope is string => !!scope);
+    const scopes = currentPermissions()
+        .map(p => p.scope)
+        .filter((scope): scope is string => scope !== undefined && scope !== null);
     return scopes.filter((scope, index, self) => self.indexOf(scope) === index);
 }

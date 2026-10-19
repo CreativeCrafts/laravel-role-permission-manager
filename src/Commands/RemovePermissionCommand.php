@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Console\Command;
+use Throwable;
+use InvalidArgumentException;
 
 /**
  * @method static void revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null)
@@ -17,9 +20,15 @@ class RemovePermissionCommand extends Command
     protected $signature = 'role-permission:remove 
                             {role : The slug or ID of the role}
                             {permissions* : The slug(s) or ID(s) of the permission(s) to remove}
-                            {--use-ids : Use IDs instead of slugs for role and permissions}';
+                            {--use-ids : Use IDs instead of slugs for role and permissions}
+                            {--scope= : Exact scope for every permission slug, including an empty string or 0}';
 
     protected $description = 'Remove one or more permissions from a role';
+
+    public function __construct(private readonly LaravelRolePermissionManager $manager)
+    {
+        parent::__construct();
+    }
 
     /**
      * Handle the command execution for removing permissions from a role.
@@ -33,15 +42,22 @@ class RemovePermissionCommand extends Command
     {
         $roleIdentifier = $this->argument('role');
         $permissionIdentifiers = $this->argument('permissions');
-        $useIds = $this->option('use-ids');
+        $useIds = (bool) $this->option('use-ids');
 
         $role = $this->getRole($roleIdentifier, $useIds);
         if (! $role instanceof Role) {
             return self::FAILURE;
         }
 
-        $permissions = $this->getPermissions($permissionIdentifiers, $useIds);
-        if ($permissions === []) {
+        if ($permissionIdentifiers === []) {
+            $this->error('At least one permission identifier is required.');
+            return self::FAILURE;
+        }
+
+        try {
+            $permissions = $this->getPermissions($permissionIdentifiers, $useIds);
+        } catch (Throwable $exception) {
+            $this->error($exception->getMessage());
             return self::FAILURE;
         }
 
@@ -49,8 +65,18 @@ class RemovePermissionCommand extends Command
             return self::FAILURE;
         }
 
+        try {
+            $role->getConnection()->transaction(function () use ($role, $permissions): void {
+                foreach ($permissions as $permission) {
+                    $this->manager->revokePermissionFromRole($role, $permission);
+                }
+            });
+        } catch (Throwable $exception) {
+            $this->error("Permission removal failed: {$exception->getMessage()}");
+            return self::FAILURE;
+        }
+
         foreach ($permissions as $permission) {
-            (new LaravelRolePermissionManager())->revokePermissionFromRole($role, $permission);
             $this->info("Permission '{$permission->name}' removed from role '{$role->name}' successfully.");
         }
 
@@ -89,14 +115,24 @@ class RemovePermissionCommand extends Command
     private function getPermissions(array $identifiers, bool $useIds): array
     {
         $permissions = [];
+        $scopeWasProvided = $this->option('scope') !== null;
+        $scope = $this->option('scope');
+
         foreach ($identifiers as $identifier) {
-            $permission = $useIds ? Permission::find($identifier) : Permission::where('slug', $identifier)->first();
-            if (! $permission) {
-                $this->error("Permission '{$identifier}' not found.");
-                continue;
+            if ($useIds) {
+                if (! ctype_digit((string) $identifier) || (int) $identifier < 1) {
+                    throw new InvalidArgumentException("Permission ID '{$identifier}' is invalid.");
+                }
+                $reference = (int) $identifier;
+            } elseif ($scopeWasProvided) {
+                $reference = new PermissionReference((string) $identifier, is_string($scope) ? $scope : null);
+            } else {
+                $reference = (string) $identifier;
             }
-            $permissions[] = $permission;
+
+            $permissions[] = $this->manager->resolvePermissionReference($reference);
         }
+
         return $permissions;
     }
 

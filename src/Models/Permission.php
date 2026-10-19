@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -45,6 +47,11 @@ class Permission extends Model
     ];
 
     /**
+     * @var list<string>
+     */
+    protected $hidden = ['name_scope_key', 'slug_scope_key'];
+
+    /**
      * Constructor for the Permission model.
      * Initializes a new Permission instance, sets the table name from configuration,
      * and automatically generates a slug from the name if not provided.
@@ -66,7 +73,12 @@ class Permission extends Model
      */
     public function roles(): BelongsToMany
     {
-        return $this->belongsToMany(Role::class);
+        return $this->belongsToMany(
+            Role::class,
+            config('role-permission-manager.role_permission_table'),
+            'permission_id',
+            'role_id',
+        );
     }
 
     /**
@@ -74,8 +86,14 @@ class Permission extends Model
      */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(config('role-permission-manager.user_model'))
-            ->using(config('role-permission-manager.user_permission_table'));
+        return $this->belongsToMany(
+            config('role-permission-manager.user_model'),
+            config('role-permission-manager.user_permission_table'),
+            'permission_id',
+            config('role-permission-manager.user_foreign_key', 'user_id'),
+            $this->getKeyName(),
+            config('role-permission-manager.user_model_key', 'id'),
+        );
     }
 
     /**
@@ -85,15 +103,24 @@ class Permission extends Model
      * @param string|null $scope The scope to consider in the match
      * @return bool Whether the permission matches
      */
-    public function wildcardMatch(string $permission, string $scope = null): bool
+    public function wildcardMatch(string $permission, ?string $scope = null): bool
     {
-        if (! config('role-permission-manager.enable_wildcard_permission')) {
-            return ($this->name === $permission || $this->slug === $permission) &&
-                ($scope === null || $this->scope === $scope);
+        if ($this->scope !== $scope) {
+            return false;
         }
 
-        if ($scope !== null && $this->scope !== $scope) {
-            return false;
+        if (! config('role-permission-manager.enable_wildcard_permission')) {
+            $caseSensitive = config('role-permission-manager.case_sensitive_permissions');
+            $name = (string) $this->name;
+            $slug = (string) $this->slug;
+
+            if (! $caseSensitive) {
+                $permission = strtolower($permission);
+                $name = strtolower($name);
+                $slug = strtolower($slug);
+            }
+
+            return $name === $permission || $slug === $permission;
         }
 
         $pattern = preg_quote($this->name, '/');
@@ -132,6 +159,36 @@ class Permission extends Model
         static::saving(static function (self $permission): void {
             if (empty($permission->slug) && ! empty($permission->name)) {
                 $permission->slug = Str::slug($permission->name);
+            }
+
+            $schema = Schema::connection($permission->getConnectionName());
+            if (
+                $schema->hasColumn($permission->getTable(), 'name_scope_key')
+                && $schema->hasColumn($permission->getTable(), 'slug_scope_key')
+            ) {
+                $scopeTag = $permission->scope === null
+                    ? "null\0"
+                    : "string\0{$permission->scope}";
+                $permission->setAttribute(
+                    'name_scope_key',
+                    hash('sha256', "name\0{$permission->name}\0{$scopeTag}"),
+                );
+                $permission->setAttribute(
+                    'slug_scope_key',
+                    hash('sha256', "slug\0{$permission->slug}\0{$scopeTag}"),
+                );
+            }
+        });
+
+        static::saved(static function (self $permission): void {
+            if (app()->bound(AuthorizationCache::class)) {
+                app(AuthorizationCache::class)->invalidate($permission);
+            }
+        });
+
+        static::deleted(static function (self $permission): void {
+            if (app()->bound(AuthorizationCache::class)) {
+                app(AuthorizationCache::class)->invalidate($permission);
             }
         });
     }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManagerServiceProvider;
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\HandleInertiaRequests;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\PermissionMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\RoleMiddleware;
@@ -150,28 +151,26 @@ it('registers cache if config is enabled', function () {
     Config::set('role-permission-manager.use_cache', true);
     Config::set('role-permission-manager.cache_store', 'array');
 
-    $appMock = Mockery::mock(app());
-    $appMock->shouldReceive('singleton')
-        ->once()
-        ->with('role-permission.cache', Mockery::type('callable'));
-
-    $provider = new LaravelRolePermissionManagerServiceProvider($appMock);
+    $provider = new LaravelRolePermissionManagerServiceProvider(app());
     $reflection = new ReflectionClass($provider);
     $method = $reflection->getMethod('registerCache');
     $method->setAccessible(true);
     $method->invoke($provider);
+
+    expect(app(AuthorizationCache::class)->enabled())->toBeTrue()
+        ->and(app('role-permission.cache'))->toBeInstanceOf(AuthorizationCache::class);
 });
 
-it('does not register cache if config is disabled', function () {
+it('registers a zero-io cache service if caching is disabled', function () {
     Config::set('role-permission-manager.use_cache', false);
-    $appMock = Mockery::mock(app());
-    $appMock->shouldNotReceive('singleton')->with('role-permission.cache', Mockery::any());
 
-    $provider = new LaravelRolePermissionManagerServiceProvider($appMock);
+    $provider = new LaravelRolePermissionManagerServiceProvider(app());
     $reflection = new ReflectionClass($provider);
     $method = $reflection->getMethod('registerCache');
     $method->setAccessible(true);
     $method->invoke($provider);
+
+    expect(app(AuthorizationCache::class)->enabled())->toBeFalse();
 });
 
 it('registers blade directives if config is enabled', function () {

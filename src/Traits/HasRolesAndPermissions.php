@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Traits;
 
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Database\Eloquent\Model;
@@ -36,6 +37,7 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         $roleModel = $this->getRoleModel($role);
         $this->roles()->syncWithoutDetaching($roleModel);
+        $this->unsetRelation('roles');
         app('laravel-role-permission-manager')->clearUserRoleCache($this);
     }
 
@@ -51,7 +53,14 @@ trait HasRolesAndPermissions
     public function roles(): BelongsToMany
     {
         $this->ensureCorrectUsage();
-        return $this->belongsToMany(Role::class, Config::get('role-permission-manager.user_role_table'));
+        return $this->belongsToMany(
+            Role::class,
+            Config::get('role-permission-manager.user_role_table'),
+            Config::get('role-permission-manager.user_foreign_key', 'user_id'),
+            'role_id',
+            Config::get('role-permission-manager.user_model_key', $this->getKeyName()),
+            (new Role())->getKeyName(),
+        );
     }
 
     /**
@@ -68,6 +77,8 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         $roleModel = $this->getRoleModel($role);
         $this->roles()->detach($roleModel);
+        $this->unsetRelation('roles');
+        app('laravel-role-permission-manager')->clearUserRoleCache($this);
     }
 
     /**
@@ -85,6 +96,8 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         $permissionModel = $this->getPermissionModel($permission, $scope);
         $this->permissions()->syncWithoutDetaching($permissionModel);
+        $this->unsetRelation('permissions');
+        app(AuthorizationCache::class)->invalidate($this, $this);
     }
 
     /**
@@ -98,7 +111,14 @@ trait HasRolesAndPermissions
     public function permissions(): BelongsToMany
     {
         $this->ensureCorrectUsage();
-        return $this->belongsToMany(Permission::class, Config::get('role-permission-manager.user_permission_table'));
+        return $this->belongsToMany(
+            Permission::class,
+            Config::get('role-permission-manager.user_permission_table'),
+            Config::get('role-permission-manager.user_foreign_key', 'user_id'),
+            'permission_id',
+            Config::get('role-permission-manager.user_model_key', $this->getKeyName()),
+            (new Permission())->getKeyName(),
+        );
     }
 
     /**
@@ -116,6 +136,8 @@ trait HasRolesAndPermissions
         $this->ensureCorrectUsage();
         $permissionModel = $this->getPermissionModel($permission, $scope);
         $this->permissions()->detach($permissionModel);
+        $this->unsetRelation('permissions');
+        app(AuthorizationCache::class)->invalidate($this, $this);
     }
 
     /**
@@ -144,7 +166,7 @@ trait HasRolesAndPermissions
      * @return Collection A collection of Role models associated with the user.
      * @throws LogicException If the trait is not used on an Eloquent model.
      */
-    public function getUserRoles(mixed $user): Collection
+    public function getUserRoles(mixed $user = null): Collection
     {
         $this->ensureCorrectUsage();
         $selectedUser = $user ?? $this;
@@ -161,7 +183,7 @@ trait HasRolesAndPermissions
      * @return Collection A collection of role names (strings) associated with the user.
      * @throws LogicException If the trait is not used on an Eloquent model.
      */
-    public function getUserRoleNames(mixed $user): Collection
+    public function getUserRoleNames(mixed $user = null): Collection
     {
         $this->ensureCorrectUsage();
         $selectedUser = $user ?? $this;
@@ -178,7 +200,7 @@ trait HasRolesAndPermissions
      * @return Collection A collection of role slugs (strings) associated with the user.
      * @throws LogicException If the trait is not used on an Eloquent model.
      */
-    public function getUserRoleSlugs(mixed $user): Collection
+    public function getUserRoleSlugs(mixed $user = null): Collection
     {
         $this->ensureCorrectUsage();
         $selectedUser = $user ?? $this;
@@ -197,19 +219,21 @@ trait HasRolesAndPermissions
     public function hasAnyRole(array $roles): bool
     {
         $this->ensureCorrectUsage();
-        $query = $this->roles();
-
-        if (! Config::get('role-permission-manager.case_sensitive_permissions')) {
-            $lowercaseRoles = array_map('strtolower', $roles);
-            $query->whereRaw(
-                'LOWER(slug) IN (' . implode(',', array_fill(0, count($lowercaseRoles), '?')) . ')',
-                $lowercaseRoles
-            );
-        } else {
-            $query->whereIn('slug', $roles);
+        if ($roles === []) {
+            return false;
         }
 
-        return $query->exists();
+        $normalize = Config::get('role-permission-manager.case_sensitive_permissions')
+            ? static fn (string $role): string => $role
+            : static fn (string $role): string => strtolower($role);
+        $expected = collect($roles)->map(
+            static fn (mixed $role): string => $normalize((string) $role)
+        )->unique();
+        $assigned = $this->roles()->pluck('slug')->map(
+            static fn (mixed $role): string => $normalize((string) $role)
+        );
+
+        return $expected->intersect($assigned)->isNotEmpty();
     }
 
     /**
@@ -224,7 +248,21 @@ trait HasRolesAndPermissions
     public function hasAllRoles(array $roles): bool
     {
         $this->ensureCorrectUsage();
-        return $this->roles()->whereIn('slug', $roles)->count() === count($roles);
+        if ($roles === []) {
+            return true;
+        }
+
+        $normalize = Config::get('role-permission-manager.case_sensitive_permissions')
+            ? static fn (string $role): string => $role
+            : static fn (string $role): string => strtolower($role);
+        $expected = collect($roles)->map(
+            static fn (mixed $role): string => $normalize((string) $role)
+        )->unique();
+        $assigned = $this->roles()->pluck('slug')->map(
+            static fn (mixed $role): string => $normalize((string) $role)
+        )->unique();
+
+        return $expected->diff($assigned)->isEmpty();
     }
 
     /**
@@ -274,7 +312,7 @@ trait HasRolesAndPermissions
     public function hasSuperAdminRole(): bool
     {
         $this->ensureCorrectUsage();
-        return $this->hasRole(Config::get('role-permission-manager.super_admin_role'));
+        return $this->hasRoleByName((string) Config::get('role-permission-manager.super_admin_role', 'Super Admin'));
     }
 
     /**
@@ -291,24 +329,43 @@ trait HasRolesAndPermissions
     {
         $this->ensureCorrectUsage();
         if (is_string($role)) {
-            $query = $this->roles();
-            $caseSensitive = Config::get('role-permission-manager.case_sensitive_permissions');
-
-            if (! $caseSensitive) {
-                $query->where(function ($q) use ($role): void {
-                    $q->whereRaw('LOWER(slug) = ?', [strtolower($role)])
-                        ->orWhereRaw('LOWER(name) = ?', [strtolower($role)]);
-                });
-            } else {
-                $query->where(function ($q) use ($role): void {
-                    $q->where('slug', $role)
-                        ->orWhere('name', $role);
-                });
+            if (Config::get('role-permission-manager.case_sensitive_permissions')) {
+                return $this->hasRoleBySlug($role) || $this->hasRoleByName($role);
             }
 
-            return $query->exists();
+            $needle = strtolower($role);
+            return $this->roles()
+                ->get(['name', 'slug'])
+                ->contains(static fn (Model $assignedRole): bool => $assignedRole instanceof Role
+                    && (
+                        strtolower((string) $assignedRole->name) === $needle
+                        || strtolower((string) $assignedRole->slug) === $needle
+                    ));
         }
-        return $this->roles->contains($role);
+
+        return $role->exists && $this->roles()->whereKey($role->getKey())->exists();
+    }
+
+    /**
+     * Check an exact role name. Role names are case-sensitive identities.
+     */
+    public function hasRoleByName(string $name): bool
+    {
+        $this->ensureCorrectUsage();
+        return $this->roles()
+            ->pluck('name')
+            ->contains(static fn (mixed $assignedName): bool => $assignedName === $name);
+    }
+
+    /**
+     * Check an exact role slug. Security middleware uses this method.
+     */
+    public function hasRoleBySlug(string $slug): bool
+    {
+        $this->ensureCorrectUsage();
+        return $this->roles()
+            ->pluck('slug')
+            ->contains(static fn (mixed $assignedSlug): bool => $assignedSlug === $slug);
     }
 
     /**

@@ -40,15 +40,18 @@ return new class () extends Migration {
         Schema::create(config('role-permission-manager.user_role_table'), function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('role_id');
-            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger(config('role-permission-manager.user_foreign_key', 'user_id'));
             $table->timestamps();
 
             $table->foreign('role_id')->references('id')->on(config('role-permission-manager.roles_table'))->onDelete(
                 'cascade'
             );
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign(config('role-permission-manager.user_foreign_key', 'user_id'))
+                ->references(config('role-permission-manager.user_model_key', 'id'))
+                ->on(config('role-permission-manager.users_table', 'users'))
+                ->onDelete('cascade');
 
-            $table->unique(['role_id', 'user_id']);
+            $table->unique(['role_id', config('role-permission-manager.user_foreign_key', 'user_id')]);
         });
 
         // Create permission_role table
@@ -72,24 +75,27 @@ return new class () extends Migration {
         Schema::create(config('role-permission-manager.user_permission_table'), function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('permission_id');
-            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger(config('role-permission-manager.user_foreign_key', 'user_id'));
             $table->timestamps();
 
             $table->foreign('permission_id')->references('id')->on(
                 config('role-permission-manager.permissions_table')
             )->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign(config('role-permission-manager.user_foreign_key', 'user_id'))
+                ->references(config('role-permission-manager.user_model_key', 'id'))
+                ->on(config('role-permission-manager.users_table', 'users'))
+                ->onDelete('cascade');
 
-            $table->unique(['permission_id', 'user_id']);
+            $table->unique(['permission_id', config('role-permission-manager.user_foreign_key', 'user_id')]);
         });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists(config('role-permission-manager.user_permission_table'));
         Schema::dropIfExists(config('role-permission-manager.role_permission_table'));
         Schema::dropIfExists(config('role-permission-manager.user_role_table'));
         Schema::dropIfExists(config('role-permission-manager.permissions_table'));
         Schema::dropIfExists(config('role-permission-manager.roles_table'));
-        Schema::dropIfExists(config('role-permission-manager.user_permission_table'));
     }
 };

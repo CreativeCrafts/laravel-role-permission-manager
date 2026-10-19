@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionArgumentException;
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\RoleHierarchyCycleException;
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -57,8 +61,14 @@ class Role extends Model
      */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(config('role-permission-manager.user_model'))
-            ->using(config('role-permission-manager.user_role_table'));
+        return $this->belongsToMany(
+            config('role-permission-manager.user_model'),
+            config('role-permission-manager.user_role_table'),
+            'role_id',
+            config('role-permission-manager.user_foreign_key', 'user_id'),
+            $this->getKeyName(),
+            config('role-permission-manager.user_model_key', 'id'),
+        );
     }
 
     /**
@@ -82,28 +92,63 @@ class Role extends Model
      */
     public function getAllChildren(): Collection
     {
-        $allChildren = new Collection();
-
-        foreach ($this->children as $child) {
-            $allChildren->push($child);
-            $allChildren = $allChildren->merge($child->getAllChildren());
+        if (! $this->exists) {
+            return collect();
         }
 
-        return $allChildren;
+        $visited = [(string) $this->getKey() => true];
+        $queue = [$this->getKey()];
+        $descendants = collect();
+        $maxNodes = max(1, (int) config('role-permission-manager.hierarchy_max_nodes', 10000));
+        $keyName = $this->getKeyName();
+
+        while ($queue !== []) {
+            $parentId = array_shift($queue);
+            $children = static::query()
+                ->where('parent_id', $parentId)
+                ->orderBy($keyName)
+                ->get();
+
+            foreach ($children as $child) {
+                $key = (string) $child->getKey();
+                if (isset($visited[$key])) {
+                    throw new RoleHierarchyCycleException('A cycle exists in the persisted role hierarchy.');
+                }
+
+                $visited[$key] = true;
+                $descendants->push($child);
+                $queue[] = $child->getKey();
+
+                if ($descendants->count() > $maxNodes) {
+                    throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
+                }
+            }
+        }
+
+        return $descendants;
     }
 
     /**
      * Check if the role has a specific permission.
      */
-    public function hasPermissionTo(string $permission): bool
+    public function hasPermissionTo(Permission|string $permission, ?string $scope = null): bool
     {
         if ($this->isSuperAdmin()) {
             return true;
         }
 
-        return $this->permissions()
-            ->where('name', config('role-permission-manager.case_sensitive_permissions') ? '=' : 'LIKE', $permission)
-            ->exists();
+        $permissions = $this->getAllPermissions();
+        if ($permission instanceof Permission) {
+            return $permission->exists
+                && ($scope === null || $permission->scope === $scope)
+                && $permissions->contains(
+                    static fn (Permission $assigned): bool => $assigned->getKey() === $permission->getKey()
+                );
+        }
+
+        return $permissions->contains(
+            static fn (Permission $assigned): bool => $assigned->wildcardMatch($permission, $scope)
+        );
     }
 
     /**
@@ -130,13 +175,34 @@ class Role extends Model
      */
     public function getAllPermissions(): Collection
     {
-        $allPermissions = $this->permissions;
-
-        if ($this->parent) {
-            $allPermissions = $allPermissions->merge($this->parent->getAllPermissions());
+        if (! $this->exists) {
+            return collect();
         }
 
-        return $allPermissions->unique('id');
+        $permissions = collect();
+        $visited = [];
+        $current = $this;
+        $maxNodes = max(1, (int) config('role-permission-manager.hierarchy_max_nodes', 10000));
+
+        while ($current instanceof self) {
+            $key = (string) $current->getKey();
+            if (isset($visited[$key])) {
+                throw new RoleHierarchyCycleException('A cycle exists in the persisted role hierarchy.');
+            }
+
+            $visited[$key] = true;
+            if (count($visited) > $maxNodes) {
+                throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
+            }
+
+            $permissions = $permissions->concat($current->permissions()->get());
+            $parentId = $current->getAttribute('parent_id');
+            $current = $parentId === null ? null : static::query()->find($parentId);
+        }
+
+        return $permissions
+            ->unique(static fn (Permission $permission): mixed => $permission->getKey())
+            ->values();
     }
 
     /**
@@ -147,29 +213,47 @@ class Role extends Model
         return $this->attributes['slug'] ?? Str::slug($this->name ?? '');
     }
 
-    public function givePermissionTo($permission): void
+    public function givePermissionTo(Permission|string $permission, ?string $scope = null): void
     {
-        if (is_string($permission)) {
-            $permissionModel = Permission::where('name', $permission)
-                ->orWhere('slug', $permission)
-                ->first();
+        if (! $this->exists) {
+            throw new InvalidPermissionArgumentException('Permissions can only be assigned to a persisted role.');
+        }
 
-            if (! $permissionModel) {
-                if (Config::get('role-permission-manager.auto_create_permissions', false)) {
-                    $permissionModel = Permission::create([
-                        'name' => $permission,
-                    ]);
-                } else {
-                    throw new ModelNotFoundException("Permission '$permission' does not exist.");
+        $scopeSpecified = func_num_args() > 1;
+        $manager = app(LaravelRolePermissionManager::class);
+
+        $this->getConnection()->transaction(function () use (
+            $permission,
+            $scope,
+            $scopeSpecified,
+            $manager,
+        ): void {
+            if (is_string($permission)) {
+                $reference = $scopeSpecified
+                    ? new PermissionReference($permission, $scope)
+                    : $permission;
+
+                try {
+                    $resolved = $manager->resolvePermissionReference($reference, true);
+                } catch (ModelNotFoundException $exception) {
+                    if (! Config::get('role-permission-manager.auto_create_permissions', false)) {
+                        throw $exception;
+                    }
+
+                    $resolved = $manager->createPermission(
+                        $permission,
+                        $permission,
+                        scope: $scopeSpecified ? $scope : null,
+                    );
                 }
+            } else {
+                $resolved = $manager->resolvePermissionReference($permission, true);
             }
-            $permission = $permissionModel;
-        }
 
-        if (! $permission instanceof Permission) {
-            throw new InvalidPermissionArgumentException();
-        }
-        $this->permissions()->syncWithoutDetaching([$permission->id]);
+            $this->permissions()->syncWithoutDetaching([$resolved->getKey()]);
+            $this->unsetRelation('permissions');
+            app(AuthorizationCache::class)->invalidate($this);
+        });
     }
 
     /**
@@ -182,6 +266,22 @@ class Role extends Model
         static::saving(static function (self $role): void {
             if (empty($role->slug) && ! empty($role->name)) {
                 $role->slug = Str::slug($role->name);
+            }
+
+            if ($role->isDirty('parent_id') && $role->parent_id !== null) {
+                $role->assertAcyclicParent((int) $role->parent_id);
+            }
+        });
+
+        static::saved(static function (self $role): void {
+            if (app()->bound(AuthorizationCache::class)) {
+                app(AuthorizationCache::class)->invalidate($role);
+            }
+        });
+
+        static::deleted(static function (self $role): void {
+            if (app()->bound(AuthorizationCache::class)) {
+                app(AuthorizationCache::class)->invalidate($role);
             }
         });
     }
@@ -207,5 +307,34 @@ class Role extends Model
                 return $value ?: Str::slug($this->name ?: '');
             }
         );
+    }
+
+    private function assertAcyclicParent(int $parentId): void
+    {
+        if ($this->exists && (string) $parentId === (string) $this->getKey()) {
+            throw new RoleHierarchyCycleException('A role cannot be its own parent.');
+        }
+
+        $visited = [];
+        $currentId = $parentId;
+        $maxNodes = max(1, (int) config('role-permission-manager.hierarchy_max_nodes', 10000));
+
+        while ($currentId !== null) {
+            $key = (string) $currentId;
+            if (isset($visited[$key])) {
+                throw new RoleHierarchyCycleException('A cycle exists in the persisted role hierarchy.');
+            }
+
+            if ($this->exists && $key === (string) $this->getKey()) {
+                throw new RoleHierarchyCycleException('The selected parent is a descendant of this role.');
+            }
+
+            $visited[$key] = true;
+            if (count($visited) > $maxNodes) {
+                throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
+            }
+
+            $currentId = static::query()->lockForUpdate()->whereKey($currentId)->value('parent_id');
+        }
     }
 }

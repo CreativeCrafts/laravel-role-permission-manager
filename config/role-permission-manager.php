@@ -15,6 +15,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | User Table and Key Contract
+    |--------------------------------------------------------------------------
+    */
+    'users_table' => 'users',
+    'user_model_key' => 'id',
+    'user_foreign_key' => 'user_id',
+
+    /*
+    |--------------------------------------------------------------------------
     | Roles Table Name
     |--------------------------------------------------------------------------
     |
@@ -113,6 +122,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Role Hierarchy Traversal Limit
+    |--------------------------------------------------------------------------
+    |
+    | Defensive upper bound for one ancestor or descendant traversal.
+    */
+    'hierarchy_max_nodes' => 10000,
+
+    /*
+    |--------------------------------------------------------------------------
     | Auto Create Permissions
     |--------------------------------------------------------------------------
     |
@@ -149,6 +167,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Package Gate Ability Prefix
+    |--------------------------------------------------------------------------
+    |
+    | Only Gate abilities beginning with this prefix are handled by the
+    | package. All other abilities are left to the host application's gates
+    | and policies.
+    */
+    'gate_permission_prefix' => 'role-permission:',
+
+    /*
+    |--------------------------------------------------------------------------
     | Register Blade Directives
     |--------------------------------------------------------------------------
     |
@@ -173,5 +202,5 @@ return [
     |
     | This is the cache store used for storing and retrieving role and permission data.
     */
-    'cache_store' => env('CACHE_STORE', 'database'),
+    'cache_store' => env('CACHE_STORE'),
 ];

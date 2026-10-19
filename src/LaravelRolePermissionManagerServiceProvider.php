@@ -4,21 +4,23 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager;
 
+use CreativeCrafts\LaravelRolePermissionManager\Authorization\DefaultMetadataAccessAuthorizer;
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\AssignPermissionCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\AssignRoleCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\CreatePermissionCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\CreateRoleCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\ListRolesPermissionsCommand;
+use CreativeCrafts\LaravelRolePermissionManager\Commands\PreflightAuthorizationDataCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\RemovePermissionCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\SyncPermissionsCommand;
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\MetadataAccessAuthorizer;
 use CreativeCrafts\LaravelRolePermissionManager\Http\Controllers\RolePermissionController;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\HandleInertiaRequests;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\PermissionMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\RoleMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Providers\AuthServiceProvider;
 use CreativeCrafts\LaravelRolePermissionManager\Traits\HasRolesAndPermissions;
-use Illuminate\Cache\Repository;
-use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
@@ -60,16 +62,19 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
         $package
             ->name('laravel-role-permission-manager')
             ->hasConfigFile()
-            ->hasMigrations(['create_role_permission_manager_tables'])
+            ->hasMigrations([
+                'create_role_permission_manager_tables',
+                'add_permission_identity_keys',
+            ])
             ->hasCommands([
                 CreateRoleCommand::class,
                 CreatePermissionCommand::class,
                 AssignPermissionCommand::class,
                 RemovePermissionCommand::class,
                 ListRolesPermissionsCommand::class,
-                RemovePermissionCommand::class,
                 SyncPermissionsCommand::class,
                 AssignRoleCommand::class,
+                PreflightAuthorizationDataCommand::class,
             ])
             ->hasAssets()
             ->publishesServiceProvider('AuthServiceProvider');
@@ -88,6 +93,12 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     public function packageRegistered(): void
     {
         $this->app->singleton('laravel-role-permission-manager', LaravelRolePermissionManager::class);
+        $this->app->singleton(
+            AuthorizationCache::class,
+            static fn ($app): AuthorizationCache => new AuthorizationCache($app['cache'])
+        );
+        $this->app->alias(AuthorizationCache::class, 'role-permission.cache');
+        $this->app->singleton(MetadataAccessAuthorizer::class, DefaultMetadataAccessAuthorizer::class);
         $this->app->register(AuthServiceProvider::class);
     }
 
@@ -130,8 +141,23 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     protected function registerGateCheck(): void
     {
         if (config('role-permission-manager.register_permission_check_method')) {
-            Gate::before(static function ($user, $ability): bool {
-                return method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo($ability);
+            Gate::before(static function ($user, string $ability, array $arguments = []): ?bool {
+                $prefix = (string) config('role-permission-manager.gate_permission_prefix', 'role-permission:');
+                if ($prefix === '' || ! str_starts_with($ability, $prefix)) {
+                    return null;
+                }
+
+                $permission = substr($ability, strlen($prefix));
+                if ($permission === '' || ! method_exists($user, 'hasPermissionTo')) {
+                    return false;
+                }
+
+                $scope = $arguments[0] ?? null;
+                if ($scope !== null && ! is_string($scope)) {
+                    return false;
+                }
+
+                return $user->hasPermissionTo($permission, $scope);
             });
         }
     }
@@ -177,13 +203,7 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
      */
     protected function registerCache(): void
     {
-        if (config('role-permission-manager.use_cache')) {
-            $this->app->singleton('role-permission.cache', function (Application $app): Repository {
-                return new Repository(
-                    $app['cache']->store(config('role-permission-manager.cache_store'))
-                );
-            });
-        }
+        $this->app->make(AuthorizationCache::class);
     }
 
     /**

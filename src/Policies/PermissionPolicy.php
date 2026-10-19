@@ -59,11 +59,7 @@ class PermissionPolicy
      */
     public function create(AuthenticatableWithRolesAndPermissions $user, string $permissionName = null): bool
     {
-        if ($user->hasPermissionTo('create permissions')) {
-            return true;
-        }
-
-        return $permissionName !== null && $user->hasPermissionTo($permissionName);
+        return $user->hasPermissionTo('create permissions');
     }
 
     /**
@@ -78,10 +74,7 @@ class PermissionPolicy
      */
     public function update(AuthenticatableWithRolesAndPermissions $user, Permission $permission): bool
     {
-        if ($user->hasPermissionTo('edit permissions')) {
-            return true;
-        }
-        return $user->hasPermissionTo($permission->name);
+        return $user->hasPermissionTo('edit permissions');
     }
 
     /**
@@ -96,9 +89,6 @@ class PermissionPolicy
      */
     public function delete(AuthenticatableWithRolesAndPermissions $user, Permission $permission): bool
     {
-        if ($user->hasPermissionTo('delete permissions')) {
-            return true;
-        }
-        return $user->hasPermissionTo($permission->name);
+        return $user->hasPermissionTo('delete permissions');
     }
 }

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidParentException;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidScopeException;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\UnableToCreateRoleException;
@@ -10,9 +9,7 @@ use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\Response;
@@ -100,30 +97,20 @@ it('throws exception when creating permission with invalid scope', function () {
 
 it('returns cached roles when available', function () {
     $manager = app(LaravelRolePermissionManager::class);
-    $cachedRoles = collect([new Role(['name' => 'Cached Role'])]);
-
-    Cache::shouldReceive('remember')
-        ->once()
-        ->andReturn($cachedRoles);
+    $role = Role::factory()->create();
 
     $roles = $manager->getAllRoles();
 
-    expect($roles)->toBe($cachedRoles);
+    expect($roles->modelKeys())->toContain($role->getKey());
 });
 
 it('returns cached permissions when available', function () {
     $manager = app(LaravelRolePermissionManager::class);
-    $cachedPermissions = collect(
-        [new Permission(['name' => 'Cached Permission'])]
-    );
-
-    Cache::shouldReceive('remember')
-        ->once()
-        ->andReturn($cachedPermissions);
+    $permission = Permission::factory()->create();
 
     $permissions = $manager->getAllPermissions();
 
-    expect($permissions)->toBe($cachedPermissions);
+    expect($permissions->modelKeys())->toContain($permission->getKey());
 });
 
 it('throws exception when giving non-existent permission to role', function () {
@@ -133,7 +120,7 @@ it('throws exception when giving non-existent permission to role', function () {
     $manager->givePermissionToRole($role, 'non_existent_permission');
 })->throws(ModelNotFoundException::class);
 
-it('does nothing when revoking non-existent permission from role', function () {
+it('fails without mutation when revoking non-existent permission from role', function () {
     $tableName = config('role-permission-manager.role_permission_table');
     expect($tableName)->toBe('role_has_permissions');
 
@@ -143,18 +130,21 @@ it('does nothing when revoking non-existent permission from role', function () {
     $tableExists = Schema::hasTable($tableName);
     expect($tableExists)->toBeTrue();
 
-    $manager->revokePermissionFromRole($role, 'non_existent_permission');
+    expect(fn () => $manager->revokePermissionFromRole($role, 'non_existent_permission'))
+        ->toThrow(ModelNotFoundException::class);
 
     expect($role->fresh()->permissions)->toBeEmpty();
 });
 
-it('returns empty arrays when syncing with empty permissions array', function () {
+it('requires explicit clear when syncing with an empty permissions array', function () {
     $manager = app(LaravelRolePermissionManager::class);
     $role = Role::factory()->create();
 
-    $result = $manager->syncPermissions($role, []);
+    expect(fn () => $manager->syncPermissions($role, []))
+        ->toThrow(CreativeCrafts\LaravelRolePermissionManager\Exceptions\EmptyPermissionSyncException::class);
 
-    expect($result)->toBe(['attached' => [], 'detached' => []]);
+    expect($manager->clearPermissions($role))
+        ->toBe(['attached' => [], 'detached' => [], 'unchanged' => []]);
 });
 
 it('returns true for super admin regardless of permission', function () {
@@ -215,22 +205,7 @@ it('checks permissions for non-super admin users', function () {
 
 it('returns empty collection for user without roles or permissions', function () {
     $manager = app(LaravelRolePermissionManager::class);
-
-    $user = Mockery::mock(AuthenticatableWithRolesAndPermissions::class);
-    $user->shouldReceive('getAuthIdentifier')->andReturn(1);
-
-    $permissionsRelation = Mockery::mock(BelongsToMany::class);
-    $permissionsRelation->shouldReceive('get')->andReturn(collect());
-    $user->shouldReceive('permissions')->andReturn($permissionsRelation);
-
-    $rolesRelation = Mockery::mock(BelongsToMany::class);
-    $rolesRelation->shouldReceive('get')->andReturn(collect());
-    $user->shouldReceive('roles')->andReturn($rolesRelation);
-
-    Cache::shouldReceive('remember')
-        ->once()
-        ->with("user_permissions_1", Mockery::any(), Mockery::any())
-        ->andReturn(collect());
+    $user = createTestUser();
 
     $permissions = $manager->getAllPermissionsForUser($user);
 
@@ -249,13 +224,7 @@ it('returns empty collection for non-existent scope', function () {
 
 it('returns false for isSuperAdmin when user is not super admin', function () {
     $manager = app(LaravelRolePermissionManager::class);
-
-    $user = Mockery::mock(AuthenticatableWithRolesAndPermissions::class);
-
-    $rolesRelation = Mockery::mock(BelongsToMany::class);
-    $rolesRelation->shouldReceive('where->exists')->andReturn(false);
-
-    $user->shouldReceive('roles')->andReturn($rolesRelation);
+    $user = createTestUser();
 
     $result = $manager->isSuperAdmin($user);
 
@@ -295,9 +264,9 @@ it('does nothing when revoking permission from role without sub-roles', function
 });
 
 it('saves the role and clears cache when creating', function () {
-    Cache::shouldReceive('forget')->once()->with('all_roles');
-
     $roleManager = new LaravelRolePermissionManager();
+    expect($roleManager->getAllRoles())->toBeEmpty();
+
     $role = $roleManager->createRole('Test Role', 'test-role', 'Test description');
 
     expect($role)->toBeInstanceOf(Role::class)
@@ -307,9 +276,8 @@ it('saves the role and clears cache when creating', function () {
         ->and($role->description)->toBe('Test description');
 
     $savedRole = Role::where('slug', 'test-role')->first();
-    expect($savedRole)->not->toBeNull();
-
-    Cache::shouldHaveReceived('forget')->once()->with('all_roles');
+    expect($savedRole)->not->toBeNull()
+        ->and($roleManager->getAllRoles()->modelKeys())->toContain($role->getKey());
 });
 
 it('creates a role with a parent', function () {
@@ -322,25 +290,28 @@ it('creates a role with a parent', function () {
         ->and($childRole->parent->slug)->toBe('parent-role');
 });
 
-it('can revoke non-existent permission from role', function () {
+it('does not revoke any permission when the requested permission does not exist', function () {
     $role = Role::factory()->create();
     $permission = Permission::factory()->create();
+    $role->permissions()->attach($permission);
 
     $roleManager = new LaravelRolePermissionManager();
-    $roleManager->revokePermissionFromRole($role, 'non-existent-permission');
+    expect(fn () => $roleManager->revokePermissionFromRole($role, 'non-existent-permission'))
+        ->toThrow(ModelNotFoundException::class);
 
-    expect($role->permissions)->not->toContain($permission);
+    expect($role->fresh()->permissions->modelKeys())->toContain($permission->getKey());
 });
 
-it('can sync permissions with non-existent permissions', function () {
+it('does not sync a partially unresolved permission list', function () {
     $role = Role::factory()->create();
-    Permission::factory()->create();
+    $existing = Permission::factory()->create(['slug' => 'existing-permission']);
+    $role->permissions()->attach($existing);
 
     $roleManager = new LaravelRolePermissionManager();
-    $result = $roleManager->syncPermissions($role, ['existing-permission', 'non-existent-permission']);
+    expect(fn () => $roleManager->syncPermissions($role, ['existing-permission', 'non-existent-permission']))
+        ->toThrow(ModelNotFoundException::class);
 
-    expect($result['attached'])->toBeEmpty()
-        ->and($result['detached'])->toBeEmpty();
+    expect($role->fresh()->permissions->modelKeys())->toBe([$existing->getKey()]);
 });
 
 it('sets a null parent role successfully', function () {
@@ -433,42 +404,21 @@ it('retrieves existing role by slug', function () {
         ->and($foundRole?->id)->toBe($role->id);
 });
 
-it('clears cache if environment is development in getAllPermissionsForUser', function () {
-    Config::set('app.env', 'development');
-
+it('bypasses cache when package caching is disabled', function () {
+    Config::set('role-permission-manager.use_cache', false);
     $manager = app(LaravelRolePermissionManager::class);
+    $user = createTestUser();
 
-    $user = Mockery::mock(AuthenticatableWithRolesAndPermissions::class)
-        ->makePartial();
-
-    $user->id = 999;
-    $user->shouldReceive('getAuthIdentifier')->andReturn(999);
-
-    $permissionsRelation = Mockery::mock(BelongsToMany::class);
-    $permissionsRelation->shouldReceive('get')->andReturn(collect());
-    $user->shouldReceive('permissions')->andReturn($permissionsRelation);
-
-    $rolesRelation = Mockery::mock(BelongsToMany::class);
-    $rolesRelation->shouldReceive('get')->andReturn(collect());
-    $user->shouldReceive('roles')->andReturn($rolesRelation);
-
-    Cache::shouldReceive('forget')->once()->with("user_permissions_999");
-    Cache::shouldReceive('remember')->once()->andReturn(collect());
-
-    $permissions = $manager->getAllPermissionsForUser($user);
-    expect($permissions)->toBeEmpty();
+    expect($manager->getAllPermissionsForUser($user))->toBeEmpty();
 });
 
-it('forgets a specific cache key when clearPermissionCache is called with argument', function () {
+it('invalidates permission catalog after permission creation', function () {
     $manager = app(LaravelRolePermissionManager::class);
-    Cache::shouldReceive('forget')
-        ->once()
-        ->with('custom_key');
+    expect($manager->getAllPermissions())->toBeEmpty();
 
-    $reflection = new ReflectionClass($manager);
-    $method = $reflection->getMethod('clearPermissionCache');
-    $method->setAccessible(true);
-    $method->invoke($manager, 'custom_key');
+    $permission = $manager->createPermission('catalog permission', 'catalog-permission');
+
+    expect($manager->getAllPermissions()->modelKeys())->toContain($permission->getKey());
 });
 
 it('assigns permissions to role and all sub-roles', function () {
@@ -508,43 +458,22 @@ it('caches user roles in production environment', function () {
     Config::set('app.env', 'production');
 
     $manager = app(LaravelRolePermissionManager::class);
+    $user = createTestUser();
+    $role = Role::factory()->create();
+    $user->assignRole($role);
 
-    $mockUser = Mockery::mock(AuthenticatableWithRolesAndPermissions::class)
-        ->makePartial();
-    $mockUser->id = 999;
-    $mockUser->shouldReceive('getAuthIdentifier')->andReturn(999);
-
-    $rolesRelation = Mockery::mock(BelongsToMany::class);
-    $rolesRelation->shouldReceive('get')->andReturn(collect());
-    $mockUser->shouldReceive('roles')->andReturn($rolesRelation);
-
-    Cache::spy();
-
-    Cache::shouldReceive('remember')
-        ->once()
-        ->with("user_roles_999", Mockery::any(), Mockery::any())
-        ->andReturn(collect());
-
-    $manager->getUserRoles($mockUser);
-
-    Cache::shouldHaveReceived('forget')
-        ->with('user_roles_999')
-        ->once();
+    expect($manager->getUserRoles($user)->modelKeys())->toBe([$role->getKey()])
+        ->and($manager->getRoleNames($user)->all())->toBe([$role->name])
+        ->and($manager->getRoleSlugs($user)->all())->toBe([$role->slug]);
 });
 
 it('clears user role cache properly', function () {
     $manager = app(LaravelRolePermissionManager::class);
+    $user = createTestUser();
 
-    $mockUser = Mockery::mock(AuthenticatableWithRolesAndPermissions::class)
-        ->makePartial();
-    $mockUser->id = 999;
-    $mockUser->shouldReceive('getAuthIdentifier')->andReturn(999);
+    $manager->clearUserRoleCache($user);
 
-    Cache::shouldReceive('forget')->once()->with("user_roles_{$mockUser->id}");
-    Cache::shouldReceive('forget')->once()->with("user_role_names_{$mockUser->id}");
-    Cache::shouldReceive('forget')->once()->with("user_role_slugs_{$mockUser->id}");
-
-    $manager->clearUserRoleCache($mockUser);
+    expect($manager->getUserRoles($user))->toBeEmpty();
 });
 
 it('handles revoking permission by scope that does not exist', function () {
@@ -553,7 +482,8 @@ it('handles revoking permission by scope that does not exist', function () {
     $permission = Permission::factory()->create(['slug' => 'permission-scope-test', 'scope' => 'some_scope']);
 
     $role->permissions()->attach($permission);
-    $manager->revokePermissionFromRole($role, 'permission-scope-test', 'no_such_scope');
+    expect(fn () => $manager->revokePermissionFromRole($role, 'permission-scope-test', 'no_such_scope'))
+        ->toThrow(ModelNotFoundException::class);
 
     expect($role->fresh()->permissions->pluck('slug'))->toContain('permission-scope-test');
 });

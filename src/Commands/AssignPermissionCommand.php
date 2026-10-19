@@ -4,47 +4,59 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
-use CreativeCrafts\LaravelRolePermissionManager\Actions\CreateNewPermission;
-use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionData;
-use CreativeCrafts\LaravelRolePermissionManager\Facades\LaravelRolePermissionManager;
-use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Throwable;
 
 class AssignPermissionCommand extends Command
 {
-    protected $signature = 'role-permission:assign {role} {permission} {--create-permission : Create the permission if it doesn\'t exist}';
+    protected $signature = 'role-permission:assign
+                            {role : Exact role slug}
+                            {permission : Exact permission slug}
+                            {--scope= : Exact permission scope, including an empty string or 0}
+                            {--create-permission : Create the exact permission if it does not exist}';
 
     protected $description = 'Assign a permission to a role';
+
+    public function __construct(private readonly LaravelRolePermissionManager $manager)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
         $roleName = $this->argument('role');
         $permissionName = $this->argument('permission');
+        $scope = $this->option('scope');
+        $scope = is_string($scope) ? $scope : null;
 
         try {
             $role = Role::where('slug', $roleName)->firstOrFail();
-            $permission = Permission::where('slug', $permissionName)->first();
+            $reference = new PermissionReference((string) $permissionName, $scope);
 
-            if (! $permission && $this->option('create-permission')) {
-                $permissionData = new PermissionData(
-                    name: $permissionName,
-                    slug: $permissionName,
+            try {
+                $permission = $this->manager->resolvePermissionReference($reference);
+            } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $exception) {
+                if (! $this->option('create-permission')) {
+                    throw $exception;
+                }
+
+                $permission = $this->manager->createPermission(
+                    $permissionName,
+                    $permissionName,
+                    scope: $scope,
                 );
-                $permission = (new CreateNewPermission($permissionData))();
                 $this->info("Permission '{$permissionName}' created.");
-            } elseif (! $permission) {
-                $this->error("Permission '{$permissionName}' not found.");
-                return self::FAILURE;
             }
 
-            LaravelRolePermissionManager::givePermissionToRole($role, $permission);
+            $this->manager->givePermissionToRole($role, $permission);
 
             $this->info("Permission '{$permission->name}' assigned to role '{$role->name}' successfully.");
             return self::SUCCESS;
-        } catch (ModelNotFoundException $e) {
-            $this->error("Role '{$roleName}' not found.");
+        } catch (Throwable $exception) {
+            $this->error("Permission assignment failed: {$exception->getMessage()}");
             return self::FAILURE;
         }
     }

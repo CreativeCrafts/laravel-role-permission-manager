@@ -63,11 +63,7 @@ class RolePolicy
      */
     public function create(AuthenticatableWithRolesAndPermissions $user, string $roleName = null): bool
     {
-        if ($user->hasPermissionTo('create roles')) {
-            return true;
-        }
-
-        return $roleName !== null && $user->hasRole($roleName);
+        return $user->hasPermissionTo('create roles');
     }
 
     /**
@@ -82,10 +78,7 @@ class RolePolicy
      */
     public function update(AuthenticatableWithRolesAndPermissions $user, Role $role): bool
     {
-        if ($user->hasPermissionTo('edit roles')) {
-            return true;
-        }
-        return $user->hasRole($role->name);
+        return $user->hasPermissionTo('edit roles');
     }
 
     /**
@@ -100,9 +93,6 @@ class RolePolicy
      */
     public function delete(AuthenticatableWithRolesAndPermissions $user, Role $role): bool
     {
-        if ($user->hasPermissionTo('delete roles')) {
-            return true;
-        }
-        return $user->hasRole($role->name);
+        return $user->hasPermissionTo('delete roles');
     }
 }

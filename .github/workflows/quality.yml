@@ -1,0 +1,94 @@
+name: quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Check PHP syntax
+        run: git ls-files -z '*.php' | xargs -0 -n1 php -l
+
+      - name: Run Larastan
+        run: composer analyse
+
+      - name: Check PHP style
+        run: vendor/bin/pint --test
+
+  specifications:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate OpenSpec
+        run: npx --yes @fission-ai/openspec@1.3.1 validate --all --strict --no-interactive
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:frontend
+
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: lrpm_test_only
+          MYSQL_DATABASE: lrpm_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -plrpm_test_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+
+      - name: Run MySQL integration suite
+        env:
+          LRPM_TEST_DB_CONNECTION: mysql
+          LRPM_TEST_DB_HOST: 127.0.0.1
+          LRPM_TEST_DB_PORT: 3306
+          LRPM_TEST_DB_DATABASE: lrpm_test
+          LRPM_TEST_DB_USERNAME: root
+          LRPM_TEST_DB_PASSWORD: lrpm_test_only
+        run: vendor/bin/pest --ci
