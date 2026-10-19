@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CreativeCrafts\LaravelRolePermissionManager\Traits;
 
 use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
+use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Database\Eloquent\Model;
@@ -94,7 +96,7 @@ trait HasRolesAndPermissions
     public function givePermissionTo(Permission|string $permission, ?string $scope = null): void
     {
         $this->ensureCorrectUsage();
-        $permissionModel = $this->getPermissionModel($permission, $scope);
+        $permissionModel = $this->resolvePermissionForAssignment($permission, $scope, func_num_args() > 1);
         $this->permissions()->syncWithoutDetaching($permissionModel);
         $this->unsetRelation('permissions');
         app(AuthorizationCache::class)->invalidate($this, $this);
@@ -134,7 +136,7 @@ trait HasRolesAndPermissions
     public function revokePermissionTo(Permission|string $permission, ?string $scope = null): void
     {
         $this->ensureCorrectUsage();
-        $permissionModel = $this->getPermissionModel($permission, $scope);
+        $permissionModel = $this->resolvePermissionForAssignment($permission, $scope, func_num_args() > 1);
         $this->permissions()->detach($permissionModel);
         $this->unsetRelation('permissions');
         app(AuthorizationCache::class)->invalidate($this, $this);
@@ -426,20 +428,38 @@ trait HasRolesAndPermissions
      */
     protected function getPermissionModel(Permission|string $permission, ?string $scope = null): Permission
     {
-        if (is_string($permission) && Config::get('role-permission-manager.auto_create_permissions')) {
-            return Permission::firstOrCreate(
+        return $this->resolvePermissionForAssignment($permission, $scope, func_num_args() > 1);
+    }
+
+    private function resolvePermissionForAssignment(
+        Permission|string $permission,
+        ?string $scope,
+        bool $scopeWasProvided,
+    ): Permission {
+        if ($permission instanceof Permission) {
+            return $permission;
+        }
+
+        $reference = $scopeWasProvided
+            ? new PermissionReference($permission, $scope)
+            : $permission;
+
+        try {
+            return app(LaravelRolePermissionManager::class)->resolvePermissionReference($reference);
+        } catch (ModelNotFoundException $exception) {
+            if (! Config::get('role-permission-manager.auto_create_permissions')) {
+                throw $exception;
+            }
+
+            return Permission::query()->firstOrCreate(
                 [
                     'slug' => $permission,
-                    'scope' => $scope,
+                    'scope' => $scopeWasProvided ? $scope : null,
                 ],
                 [
                     'name' => $permission,
-                ]
+                ],
             );
         }
-
-        return is_string($permission)
-            ? Permission::where('slug', $permission)->where('scope', $scope)->firstOrFail()
-            : $permission;
     }
 }

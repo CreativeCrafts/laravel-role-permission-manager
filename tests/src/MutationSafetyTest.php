@@ -57,8 +57,14 @@ it('rejects ambiguous slug-only mutation references', function () {
     $zero = Permission::factory()->create(['name' => 'shared zero', 'slug' => 'shared', 'scope' => '0']);
 
     expect(fn () => $manager->syncPermissions($role, ['shared']))
-        ->toThrow(AmbiguousPermissionReferenceException::class);
+        ->toThrow(AmbiguousPermissionReferenceException::class)
+        ->and(fn () => $manager->givePermissionToRole($role, 'shared'))
+        ->toThrow(AmbiguousPermissionReferenceException::class)
+        ->and(fn () => createTestUser()->givePermissionTo('shared'))
+        ->toThrow(AmbiguousPermissionReferenceException::class)
+        ->and($role->fresh()->permissions)->toBeEmpty();
 
+    $manager->givePermissionToRole($role, 'shared', '0');
     $manager->syncPermissions($role, [new PermissionReference('shared', '0')]);
     expect($role->fresh()->permissions->modelKeys())->toBe([$zero->id]);
 });

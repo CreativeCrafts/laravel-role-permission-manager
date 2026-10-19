@@ -196,11 +196,14 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
-        $role->getConnection()->transaction(function () use ($role, $permission, $scope): void {
+        $scopeWasProvided = func_num_args() >= 3;
+
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
             Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
-            $permissionModel = $permission instanceof Permission
-                ? $this->resolvePermissionReference($permission, true)
-                : $this->resolvePermissionReference(new PermissionReference($permission, $scope), true);
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+            );
 
             $role->permissions()->syncWithoutDetaching([$permissionModel->getKey()]);
             $role->unsetRelation('permissions');
@@ -220,11 +223,14 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
-        $role->getConnection()->transaction(function () use ($role, $permission, $scope): void {
+        $scopeWasProvided = func_num_args() >= 3;
+
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
             Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
-            $permissionModel = $permission instanceof Permission
-                ? $this->resolvePermissionReference($permission, true)
-                : $this->resolvePermissionReference(new PermissionReference($permission, $scope), true);
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+            );
 
             $role->permissions()->detach($permissionModel);
             $role->unsetRelation('permissions');
@@ -463,10 +469,13 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         Permission|string $permission,
         ?string $scope = null,
     ): void {
-        $role->getConnection()->transaction(function () use ($role, $permission, $scope): void {
-            $permissionModel = $permission instanceof Permission
-                ? $this->resolvePermissionReference($permission, true)
-                : $this->resolvePermissionReference(new PermissionReference($permission, $scope), true);
+        $scopeWasProvided = func_num_args() >= 3;
+
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+            );
 
             $roles = collect([$role])->concat($this->getSubRoles($role));
             foreach ($roles as $targetRole) {
@@ -492,10 +501,13 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         Permission|string $permission,
         ?string $scope = null,
     ): void {
-        $role->getConnection()->transaction(function () use ($role, $permission, $scope): void {
-            $permissionModel = $permission instanceof Permission
-                ? $this->resolvePermissionReference($permission, true)
-                : $this->resolvePermissionReference(new PermissionReference($permission, $scope), true);
+        $scopeWasProvided = func_num_args() >= 3;
+
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+            );
 
             $roles = collect([$role])->concat($this->getSubRoles($role));
             foreach ($roles as $targetRole) {
@@ -658,11 +670,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     protected function getPermissionModel(Permission|string $permission, ?string $scope = null): Permission
     {
-        if ($permission instanceof Permission) {
-            return $this->resolvePermissionReference($permission);
+        return $this->resolvePermissionReference(
+            $this->mutationPermissionReference($permission, $scope, func_num_args() >= 2),
+        );
+    }
+
+    private function mutationPermissionReference(
+        Permission|string $permission,
+        ?string $scope,
+        bool $scopeWasProvided,
+    ): Permission|PermissionReference|string {
+        if ($permission instanceof Permission || ! $scopeWasProvided) {
+            return $permission;
         }
 
-        return $this->resolvePermissionReference(new PermissionReference($permission, $scope));
+        return new PermissionReference($permission, $scope);
     }
 
     /**

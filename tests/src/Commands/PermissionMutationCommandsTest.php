@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Schema;
 
 it('synchronizes fully valid permission slugs', function () {
     $role = Role::factory()->create(['name' => 'Editor', 'slug' => 'editor']);
@@ -161,4 +165,51 @@ it('supports ID mode and rejects invalid IDs', function () {
         'permissions' => ['not-an-id'],
         '--use-ids' => true,
     ])->assertFailed();
+});
+
+it('assigns a role by numeric id, email, or string primary key', function () {
+    $role = Role::factory()->create(['name' => 'Editor', 'slug' => 'editor']);
+    $byId = createTestUser();
+    $byId->forceFill(['email' => 'ada@example.com', 'name' => 'Ada'])->save();
+    $byEmail = createTestUser();
+    $byEmail->forceFill(['email' => 'grace@example.com', 'name' => 'Grace'])->save();
+
+    $this->artisan('role-permission:assign-role', [
+        'user' => (string) $byId->id,
+        'role' => 'editor',
+    ])->assertSuccessful();
+    $this->artisan('role-permission:assign-role', [
+        'user' => 'grace@example.com',
+        'role' => 'editor',
+    ])->assertSuccessful();
+
+    expect($byId->fresh()->roles->modelKeys())->toBe([$role->id])
+        ->and($byEmail->fresh()->roles->modelKeys())->toBe([$role->id]);
+
+    Schema::create('string_key_users', function (Blueprint $table): void {
+        $table->string('id')->primary();
+        $table->string('name');
+        $table->string('email')->nullable();
+    });
+    $stringUser = new class () extends TestUser {
+        public $incrementing = false;
+        protected $table = 'string_key_users';
+
+        protected $keyType = 'string';
+    };
+    Config::set('role-permission-manager.user_model', $stringUser::class);
+    $stringUser->forceFill([
+        'id' => '01JUSERULID000000000000000',
+        'name' => 'String Key',
+        'email' => 'string@example.com',
+    ])->save();
+
+    Schema::disableForeignKeyConstraints();
+    $this->artisan('role-permission:assign-role', [
+        'user' => '01JUSERULID000000000000000',
+        'role' => 'editor',
+    ])->assertSuccessful();
+    Schema::enableForeignKeyConstraints();
+
+    expect($stringUser->fresh()->roles->modelKeys())->toBe([$role->id]);
 });

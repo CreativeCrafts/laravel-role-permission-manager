@@ -53,9 +53,10 @@ class AssignRoleCommand extends Command
         $userModel = config('role-permission-manager.user_model');
 
         $query = $userModel::query();
-        $query = ctype_digit((string) $identifier)
-            ? $query->whereKey($identifier)
-            : $query->where('email', $identifier);
+        $lookup = (string) $identifier;
+        $query = filter_var($lookup, FILTER_VALIDATE_EMAIL) !== false
+            ? $query->where('email', $lookup)
+            : $query->whereKey($lookup);
 
         /** @var Model $user */
         $user = $query->firstOrFail();
