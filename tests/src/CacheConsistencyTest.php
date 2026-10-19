@@ -143,12 +143,14 @@ it('does not publish rolled-back revocation state', function () {
     }
 
     $user->unsetRelation('permissions');
+
+    expect($cache->currentGeneration())->toBe($generation)
+        ->and($user->hasPermissionTo('rollback.action'))->toBeTrue();
+
     $pendingInvalidations = (new ReflectionProperty(AuthorizationCache::class, 'pendingInvalidations'))
         ->getValue($cache);
 
-    expect($cache->currentGeneration())->toBe($generation)
-        ->and($pendingInvalidations)->toBe(0)
-        ->and($user->hasPermissionTo('rollback.action'))->toBeTrue();
+    expect($pendingInvalidations)->toBe([]);
 });
 
 it('ignores legacy cache values during authorization', function () {

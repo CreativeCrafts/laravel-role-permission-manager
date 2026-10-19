@@ -10,13 +10,23 @@ use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use JsonException;
 
 final class AuthorizationCache
 {
     private const NAMESPACE = 'creativecrafts:lprm:v2';
 
-    private int $pendingInvalidations = 0;
+    /**
+     * Open invalidations keyed by connection name.
+     *
+     * Laravel 10 database connections do not implement afterRollBack(). A rolled-back
+     * transaction therefore leaves its count in place until the next read observes
+     * that the connection is no longer inside a transaction.
+     *
+     * @var array<string, int>
+     */
+    private array $pendingInvalidations = [];
 
     public function __construct(private readonly CacheFactory $cache)
     {
@@ -39,7 +49,7 @@ final class AuthorizationCache
      */
     public function remember(string $type, array $identity, Closure $loader): mixed
     {
-        if (! $this->enabled() || $this->pendingInvalidations > 0) {
+        if (! $this->enabled() || $this->hasPendingInvalidation()) {
             return $loader();
         }
 
@@ -61,14 +71,12 @@ final class AuthorizationCache
 
         $connection = $model?->getConnection();
         if ($connection instanceof Connection && $connection->transactionLevel() > 0) {
-            $this->pendingInvalidations++;
-            $connection->afterCommit(function () use ($principal): void {
+            $connectionName = $connection->getName();
+            $this->pendingInvalidations[$connectionName] = ($this->pendingInvalidations[$connectionName] ?? 0) + 1;
+            $connection->afterCommit(function () use ($principal, $connectionName): void {
                 $this->publishGeneration();
                 $this->forgetLegacyPrincipal($principal);
-                $this->releasePendingInvalidation();
-            });
-            $connection->afterRollBack(function (): void {
-                $this->releasePendingInvalidation();
+                $this->releasePendingInvalidation($connectionName);
             });
 
             return;
@@ -76,7 +84,7 @@ final class AuthorizationCache
 
         $this->publishGeneration();
         $this->forgetLegacyPrincipal($principal);
-        $this->pendingInvalidations = 0;
+        $this->pendingInvalidations = [];
     }
 
     public function principalIdentity(
@@ -189,9 +197,28 @@ final class AuthorizationCache
         }
     }
 
-    private function releasePendingInvalidation(): void
+    private function hasPendingInvalidation(): bool
     {
-        $this->pendingInvalidations = max(0, $this->pendingInvalidations - 1);
+        foreach (array_keys($this->pendingInvalidations) as $connectionName) {
+            $pending = $this->pendingInvalidations[$connectionName] ?? 0;
+            if ($pending <= 0 || DB::connection($connectionName)->transactionLevel() === 0) {
+                unset($this->pendingInvalidations[$connectionName]);
+            }
+        }
+
+        return $this->pendingInvalidations !== [];
+    }
+
+    private function releasePendingInvalidation(string $connectionName): void
+    {
+        $remaining = ($this->pendingInvalidations[$connectionName] ?? 0) - 1;
+        if ($remaining > 0) {
+            $this->pendingInvalidations[$connectionName] = $remaining;
+
+            return;
+        }
+
+        unset($this->pendingInvalidations[$connectionName]);
     }
 
     private function generationKey(): string
