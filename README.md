@@ -23,6 +23,9 @@ complex multi-tenant application with granular permissions, Laravel Role Permiss
 - Comprehensive testing suite ensuring reliability
 - Clear and concise API for programmatic access control
 
+Security-sensitive upgrades can change authorization semantics. Review [UPGRADE.md](UPGRADE.md), run the read-only
+preflight command, and update published frontend assets before deploying a new major version.
+
 ## Table of Contents
 
 1. [Getting Started](#getting-started)
@@ -114,12 +117,14 @@ Key configuration options:
     - user_model: Specify the User model used by your application
     - roles_table: Define the name for the roles table
     - permissions_table: Define the name for the permissions table
-    - cache_expiration_time: Set the cache expiration time for roles and permissions
+    - cache_expiration_time: Set the cache expiration time in minutes
+    - cache_store: Select the cache store used by package authorization state
     - default_guard: Specify the default guard for role and permission checks
     - use_package_routes: If set to true, the package will register its routes automatically.
     - route_middleware: Define the middleware to be applied to the package routes
     - route_prefix: Set the prefix for the package routes
     - super_admin_role: Define the role that should be considered as a super admin
+    - gate_permission_prefix: Prefix package-owned Gate abilities (defaults to `role-permission:`)
     - auto_create_permissions: Enable or disable automatic creation of permissions
     - enable_wildcard_permission: Enable or disable wildcard permissions
     - case_sensitive_permissions: Choose whether permission names should be case-sensitive
@@ -210,8 +215,8 @@ user's permissions with the frontend.
 2. **Permission Sharing**: Shares the authenticated user's permissions with Inertia, making them available on the
    frontend.
 
-3. **Caching**: Uses Laravel's cache system to store user permissions, improving performance by reducing database
-   queries.
+3. **Current Request Data**: Resolves permissions lazily from the current authenticated request. Package cache behavior
+   follows `use_cache`, `cache_store`, and `cache_expiration_time`.
 
 #### How it Works
 
@@ -242,7 +247,9 @@ Example: In your Vue components, you can access the user's permissions like this
 const permissions = this.$page.props.auth.permissions;
 
 // Check if user has a specific permission
-if (permissions.includes('edit-posts')) {
+if (permissions.some(permission =>
+    permission.slug === 'edit-posts' && permission.scope === null
+)) {
     // User can edit posts
 }
 ```
@@ -372,11 +379,12 @@ The package provides a facade for easy access to role and permission management 
 #### Key methods:
 
 - `createRole(string $name, string $slug, ?string $description = null, ?Role $parent = null): Role`
-- `createPermission(string $name, string $slug, ?string $description = null): Permission`
+- `createPermission(string $name, string $slug, ?string $description = null, ?string $scope = null): Permission`
 - `givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void`
 - `revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void`
-- `syncPermissions(Role $role, array $permissions): void`
-- `hasPermissionTo(mixed $user, string $permission, ?string $scope = null): bool`
+- `syncPermissions(Role $role, array $permissions, bool $clear = false): array`
+- `clearPermissions(Role $role): array`
+- `hasPermissionTo(mixed $user, Permission|string $permission, ?string $scope = null): bool`
 - `getSubRoles(Role $role): Collection`
 - `grantPermissionToRoleAndSubRoles(Role $role, Permission|string $permission): void`
 - `revokePermissionFromRoleAndSubRoles(Role $role, Permission|string $permission): void`
@@ -437,12 +445,12 @@ By default, the package registers the following routes:
 
 - `GET /roles`: List all roles
 - `GET /permissions`: List all permissions
-- `GET /user/{userId}/roles`: Get roles for a specific user
 - `GET /user/{userId}/permissions`: Get permissions for a specific user
 - `GET /user/{userId}/permissions/{scope}`: Get scoped permissions for a specific user
 
-These routes are protected by middleware and can be accessed via the `RolePermissionController` included with the
-package.
+The configured prefix defaults to `/api/role-permissions`. In addition to route middleware, catalogs require the
+unscoped `view roles` or `view permissions` permission. Self-inspection is allowed; cross-user inspection is denied
+unless the host binds a custom `MetadataAccessAuthorizer`. No user-role endpoint is registered.
 
 #### Customizing Route Registration
 
@@ -601,8 +609,8 @@ export default defineComponent({
 These helpers expect the permissions data to be available on window.Laravel.permissions. Ensure this data is properly
 populated on your frontend, typically by sharing it through your backend views or API responses.
 
-This TypeScript module provides a robust and type-safe way to manage permissions in your Vue.js frontend, complementing
-the backend permission management provided by the Laravel Role Permission Manager package.
+The helper reads the current value on every check, treats omitted scope as null scope, and has no frontend privileged
+role bypass. It is a display helper; backend authorization remains authoritative.
 
 ### React Permission Hooks
 
@@ -611,7 +619,7 @@ For React applications, the package provides a custom hook usePermissions.
 #### Key Features
 
 1. **Inertia.js Integration**: Works seamlessly with Inertia.js to access shared permissions data.
-2. **Memoized Functions**: All permission checks are memoized for improved performance.
+2. **Current Principal State**: Functions are rebuilt when current Inertia permission props change.
 3. **Scoped Permissions**: Supports checking permissions within specific scopes.
 
 #### Usage
@@ -664,12 +672,35 @@ data is properly shared from your Laravel backend when using Inertia.js.
 This React hook provides a convenient and type-safe way to manage permissions in your React frontend when using
 Inertia.js, complementing the Laravel Role Permission Manager package's backend functionality.
 
+## Authorization and upgrade safety
+
+- Package Gate checks use the `role-permission:` prefix by default and abstain from unrelated abilities.
+- The configured super-admin value is an exact role name; role middleware accepts exact slugs.
+- Omitted authorization scope matches only a null-scope grant. Empty string and `"0"` remain distinct.
+- Wildcards are anchored and only `*` is special.
+- Authorization checks never create permission records.
+- Supported mutations are transactional and invalidate package authorization generations after commit.
+- Multi-process deployments require a shared cache store for cross-process revocation consistency.
+
+Before upgrading existing data, run:
+
+```bash
+php artisan role-permission:preflight
+```
+
+See [UPGRADE.md](UPGRADE.md) for breaking changes, migration, rollout, frontend republishing, and rollback instructions.
+
 ## Testing
 
-To run the tests, use:
+Run the PHP, static-analysis, style, and frontend checks with:
 
 ```bash
 composer test
+composer analyse
+vendor/bin/pint --test
+npm ci
+npm run typecheck
+npm run test:frontend
 ```
 
 ## Changelog
