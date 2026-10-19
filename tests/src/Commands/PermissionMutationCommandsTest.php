@@ -204,7 +204,17 @@ it('assigns a role by numeric id, email, or string primary key', function () {
         'email' => 'different@example.com',
     ])->save();
 
+    $userRoleTable = (string) config('role-permission-manager.user_role_table');
+    $userForeignKey = (string) config('role-permission-manager.user_foreign_key', 'user_id');
     Schema::disableForeignKeyConstraints();
+    Schema::drop($userRoleTable);
+    Schema::create($userRoleTable, function (Blueprint $table) use ($userForeignKey): void {
+        $table->id();
+        $table->unsignedBigInteger('role_id');
+        $table->string($userForeignKey);
+        $table->timestamps();
+        $table->unique(['role_id', $userForeignKey]);
+    });
     $this->artisan('role-permission:assign-role', [
         'user' => 'string-key@example.com',
         'role' => 'editor',
