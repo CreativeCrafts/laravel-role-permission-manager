@@ -264,6 +264,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         }
 
         return $role->getConnection()->transaction(function () use ($role, $permissions): array {
+            Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $resolved = collect($permissions)
                 ->map(fn (mixed $reference): Permission => $this->resolvePermissionReference($reference, true))
                 ->unique(static fn (Permission $permission): mixed => $permission->getKey())

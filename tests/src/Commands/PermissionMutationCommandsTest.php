@@ -103,6 +103,19 @@ it('requires explicit clear and respects cancellation', function () {
     expect($role->fresh()->permissions)->toBeEmpty();
 });
 
+it('rejects an omitted scope when the permission slug is ambiguous', function () {
+    $role = Role::factory()->create(['name' => 'Editor', 'slug' => 'editor']);
+    Permission::factory()->create(['name' => 'Shared null', 'slug' => 'shared', 'scope' => null]);
+    Permission::factory()->create(['name' => 'Shared zero', 'slug' => 'shared', 'scope' => '0']);
+
+    $this->artisan('role-permission:assign', [
+        'role' => 'editor',
+        'permission' => 'shared',
+    ])->assertFailed();
+
+    expect($role->fresh()->permissions)->toBeEmpty();
+});
+
 it('assigns and removes an exact scoped permission', function () {
     $role = Role::factory()->create(['name' => 'Editor', 'slug' => 'editor']);
     Permission::factory()->create(['name' => 'Shared null', 'slug' => 'shared', 'scope' => null]);

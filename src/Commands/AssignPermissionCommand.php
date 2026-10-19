@@ -29,12 +29,15 @@ class AssignPermissionCommand extends Command
     {
         $roleName = $this->argument('role');
         $permissionName = $this->argument('permission');
+        $scopeWasProvided = $this->option('scope') !== null;
         $scope = $this->option('scope');
         $scope = is_string($scope) ? $scope : null;
+        $reference = $scopeWasProvided
+            ? new PermissionReference((string) $permissionName, $scope)
+            : (string) $permissionName;
 
         try {
             $role = Role::where('slug', $roleName)->firstOrFail();
-            $reference = new PermissionReference((string) $permissionName, $scope);
 
             try {
                 $permission = $this->manager->resolvePermissionReference($reference);

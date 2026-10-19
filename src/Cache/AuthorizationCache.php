@@ -126,14 +126,11 @@ final class AuthorizationCache
         }
 
         $repository = $this->repository();
-        $value = $repository->get($this->generationKey());
-        if (is_int($value) && $value > 0) {
-            return $value;
-        }
+        $key = $this->generationKey();
+        $repository->add($key, 1, now()->addYears(10));
+        $generation = $this->normalizeGeneration($repository->get($key));
 
-        $repository->forever($this->generationKey(), 1);
-
-        return 1;
+        return $generation > 0 ? $generation : 1;
     }
 
     /**
@@ -175,9 +172,25 @@ final class AuthorizationCache
         $repository->add($key, 1, now()->addYears(10));
         $next = $repository->increment($key);
 
-        if (! is_int($next) || $next < 1) {
-            $repository->forever($key, max(2, $this->currentGeneration() + 1));
+        if ($this->normalizeGeneration($next) >= 1 && is_numeric($next)) {
+            return;
         }
+
+        $current = $this->normalizeGeneration($repository->get($key));
+        $repository->add($key, $current + 1, now()->addYears(10));
+    }
+
+    private function normalizeGeneration(mixed $value): int
+    {
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            return (int) $value;
+        }
+
+        return 0;
     }
 
     private function forgetLegacyPrincipal(?Authenticatable $principal): void

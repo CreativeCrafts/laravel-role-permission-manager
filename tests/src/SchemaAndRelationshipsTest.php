@@ -106,10 +106,14 @@ it('runs the published migrations down in foreign-key-safe order and reinstalls'
     $base->up();
     $identity->up();
 
-    expect(Schema::hasColumn(
-        config('role-permission-manager.permissions_table'),
-        'slug_scope_key',
-    ))->toBeTrue();
+    $permissions = (string) config('role-permission-manager.permissions_table');
+    $columns = collect(Schema::getColumns($permissions))->keyBy('name');
+
+    expect(Schema::hasColumn($permissions, 'slug_scope_key'))->toBeTrue()
+        ->and($columns['name_scope_key']['nullable'])->toBeFalse()
+        ->and($columns['slug_scope_key']['nullable'])->toBeFalse()
+        ->and(Schema::hasIndex($permissions, 'lprm_perm_name_scope_key_uq'))->toBeTrue()
+        ->and(Schema::hasIndex($permissions, 'lprm_perm_slug_scope_key_uq'))->toBeTrue();
 });
 
 it('distinguishes null empty and zero scope while rejecting exact duplicates', function () {
@@ -143,6 +147,43 @@ it('blocks an additive identity migration before schema mutation when duplicates
     expect(fn () => $migration->up())->toThrow(RuntimeException::class)
         ->and(Schema::hasColumn('legacy_permissions', 'name_scope_key'))->toBeFalse()
         ->and(Schema::hasColumn('legacy_permissions', 'slug_scope_key'))->toBeFalse();
+});
+
+it('completes identity indexes when the columns already exist', function () {
+    $installed = (string) config('role-permission-manager.permissions_table');
+    // SQLite index names are database-wide, so the installed table cannot keep these names.
+    Schema::table($installed, function (Blueprint $table): void {
+        $table->dropUnique('lprm_perm_name_scope_key_uq');
+        $table->dropUnique('lprm_perm_slug_scope_key_uq');
+    });
+    Config::set('role-permission-manager.permissions_table', 'legacy_permissions');
+    Schema::create('legacy_permissions', function (Blueprint $table): void {
+        $table->id();
+        $table->string('name');
+        $table->string('slug')->nullable();
+        $table->string('scope')->nullable();
+        $table->text('description')->nullable();
+        $table->timestamps();
+        $table->char('name_scope_key', 64)->nullable();
+        $table->char('slug_scope_key', 64)->nullable();
+    });
+    DB::table('legacy_permissions')->insert([
+        'name' => 'view reports',
+        'slug' => 'view-reports',
+        'scope' => null,
+        'name_scope_key' => null,
+        'slug_scope_key' => null,
+    ]);
+    $migration = include __DIR__ . '/../../database/migrations/add_permission_identity_keys.php';
+
+    $migration->up();
+
+    $columns = collect(Schema::getColumns('legacy_permissions'))->keyBy('name');
+    expect($columns['name_scope_key']['nullable'])->toBeFalse()
+        ->and($columns['slug_scope_key']['nullable'])->toBeFalse()
+        ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_name_scope_key_uq'))->toBeTrue()
+        ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_slug_scope_key_uq'))->toBeTrue()
+        ->and(DB::table('legacy_permissions')->whereNull('name_scope_key')->doesntExist())->toBeTrue();
 });
 
 it('reports read-only preflight blockers without changing rows', function () {

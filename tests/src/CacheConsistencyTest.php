@@ -31,6 +31,7 @@ it('honors the configured store and converts ttl minutes to an absolute expirati
     Carbon::setTestNow('2026-10-16 12:00:00');
 
     $repository = Mockery::mock(Repository::class);
+    $repository->shouldReceive('add')->once()->andReturn(false);
     $repository->shouldReceive('get')->once()->andReturn(7);
     $repository->shouldReceive('remember')
         ->once()
@@ -151,6 +152,14 @@ it('does not publish rolled-back revocation state', function () {
         ->getValue($cache);
 
     expect($pendingInvalidations)->toBe([]);
+});
+
+it('does not replace an existing cache generation with the initial value', function () {
+    Config::set('role-permission-manager.use_cache', true);
+    Config::set('role-permission-manager.cache_expiration_time', 60);
+    Cache::forever('creativecrafts:lprm:v2:generation', 4);
+
+    expect(app(AuthorizationCache::class)->currentGeneration())->toBe(4);
 });
 
 it('ignores legacy cache values during authorization', function () {
