@@ -199,14 +199,14 @@ it('assigns a role by numeric id, email, or string primary key', function () {
     };
     Config::set('role-permission-manager.user_model', $stringUser::class);
     $stringUser->forceFill([
-        'id' => '01JUSERULID000000000000000',
+        'id' => 'string-key@example.com',
         'name' => 'String Key',
-        'email' => 'string@example.com',
+        'email' => 'different@example.com',
     ])->save();
 
     Schema::disableForeignKeyConstraints();
     $this->artisan('role-permission:assign-role', [
-        'user' => '01JUSERULID000000000000000',
+        'user' => 'string-key@example.com',
         'role' => 'editor',
     ])->assertSuccessful();
     Schema::enableForeignKeyConstraints();

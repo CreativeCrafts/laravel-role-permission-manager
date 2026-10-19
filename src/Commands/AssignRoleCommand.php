@@ -52,14 +52,18 @@ class AssignRoleCommand extends Command
     {
         $userModel = config('role-permission-manager.user_model');
 
-        $query = $userModel::query();
         $lookup = (string) $identifier;
-        $query = filter_var($lookup, FILTER_VALIDATE_EMAIL) !== false
-            ? $query->where('email', $lookup)
-            : $query->whereKey($lookup);
+        $byKey = $userModel::query()->whereKey($lookup)->first();
+        if ($byKey instanceof Model) {
+            return $byKey;
+        }
+
+        if (filter_var($lookup, FILTER_VALIDATE_EMAIL) === false) {
+            throw (new ModelNotFoundException())->setModel($userModel, [$lookup]);
+        }
 
         /** @var Model $user */
-        $user = $query->firstOrFail();
+        $user = $userModel::query()->where('email', $lookup)->firstOrFail();
 
         return $user;
     }
