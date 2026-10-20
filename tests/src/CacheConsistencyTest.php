@@ -128,6 +128,39 @@ it('does not reuse cached permission ids from another database connection', func
         ->and($tenantUser->getUserRoles()->pluck('slug')->all())->toBe(['tenant-role']);
 });
 
+it('does not cache an open transaction grant when another connection publishes invalidation', function () {
+    config()->set('database.connections.side_cache', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+        'foreign_key_constraints' => true,
+    ]);
+    DB::purge('side_cache');
+
+    $permission = Permission::factory()->create([
+        'name' => 'Held grant',
+        'slug' => 'held-grant',
+        'scope' => null,
+    ]);
+    $user = createTestUser();
+
+    DB::beginTransaction();
+    try {
+        $user->givePermissionTo($permission);
+        $side = new Permission();
+        $side->setConnection('side_cache');
+        app(AuthorizationCache::class)->invalidate($side);
+
+        expect($user->hasPermissionTo('held-grant'))->toBeTrue();
+    } finally {
+        while (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+    }
+
+    expect($user->hasPermissionTo('held-grant'))->toBeFalse();
+});
+
 it('invalidates direct role and privileged revocation for loaded and independent models', function () {
     $manager = app(LaravelRolePermissionManager::class);
     $permission = Permission::factory()->create([

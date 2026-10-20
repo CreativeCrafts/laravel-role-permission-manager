@@ -84,7 +84,7 @@ final class AuthorizationCache
 
         $this->publishGeneration();
         $this->forgetLegacyPrincipal($principal);
-        $this->pendingInvalidations = [];
+        $this->forgetInactivePendingInvalidations();
     }
 
     public function principalIdentity(
@@ -246,14 +246,19 @@ final class AuthorizationCache
 
     private function hasPendingInvalidation(): bool
     {
+        $this->forgetInactivePendingInvalidations();
+
+        return $this->pendingInvalidations !== [];
+    }
+
+    private function forgetInactivePendingInvalidations(): void
+    {
         foreach (array_keys($this->pendingInvalidations) as $connectionName) {
             $pending = $this->pendingInvalidations[$connectionName] ?? 0;
             if ($pending <= 0 || DB::connection($connectionName)->transactionLevel() === 0) {
                 unset($this->pendingInvalidations[$connectionName]);
             }
         }
-
-        return $this->pendingInvalidations !== [];
     }
 
     private function releasePendingInvalidation(string $connectionName): void

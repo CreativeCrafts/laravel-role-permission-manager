@@ -257,6 +257,49 @@ it('matches user pivot columns to a string user primary key', function () {
         ->and($permissionPivot['type_name'])->toBe($userKey['type_name']);
 });
 
+it('copies charset and collation onto string user pivot columns', function () {
+    DB::statement(
+        'create table collated_users (id varchar(64) character set latin1 collate latin1_swedish_ci primary key, name varchar(255) not null)'
+    );
+    Config::set([
+        'role-permission-manager.users_table' => 'collated_users',
+        'role-permission-manager.user_model_key' => 'id',
+        'role-permission-manager.roles_table' => 'collated_roles',
+        'role-permission-manager.permissions_table' => 'collated_permissions',
+        'role-permission-manager.user_role_table' => 'collated_user_roles',
+        'role-permission-manager.role_permission_table' => 'collated_role_permissions',
+        'role-permission-manager.user_permission_table' => 'collated_user_permissions',
+    ]);
+    $migration = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+
+    $migration->up();
+
+    $userKey = collect(Schema::getColumns('collated_users'))->firstWhere('name', 'id');
+    $rolePivot = collect(Schema::getColumns('collated_user_roles'))->firstWhere('name', 'user_id');
+    $permissionPivot = collect(Schema::getColumns('collated_user_permissions'))->firstWhere('name', 'user_id');
+    $sourceCharset = DB::selectOne(
+        'select character_set_name as charset from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?',
+        ['collated_users', 'id'],
+    );
+    $roleCharset = DB::selectOne(
+        'select character_set_name as charset from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?',
+        ['collated_user_roles', 'user_id'],
+    );
+    $permissionCharset = DB::selectOne(
+        'select character_set_name as charset from information_schema.columns where table_schema = database() and table_name = ? and column_name = ?',
+        ['collated_user_permissions', 'user_id'],
+    );
+
+    expect($rolePivot['collation'])->toBe($userKey['collation'])
+        ->and($permissionPivot['collation'])->toBe($userKey['collation'])
+        ->and($roleCharset->charset)->toBe($sourceCharset->charset)
+        ->and($permissionCharset->charset)->toBe($sourceCharset->charset)
+        ->and($sourceCharset->charset)->toBe('latin1');
+})->skip(
+    fn (): bool => getenv('LRPM_TEST_DB_CONNECTION') !== 'mysql',
+    'MySQL foreign keys require matching string charset and collation.',
+);
+
 it('matches user pivot columns to an unsigned integer user primary key', function () {
     Schema::create('increment_users', function (Blueprint $table): void {
         $table->increments('id');

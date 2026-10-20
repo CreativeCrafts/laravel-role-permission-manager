@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Fluent;
 
 return new class () extends Migration {
     public function up(): void
@@ -140,13 +142,14 @@ return new class () extends Migration {
         }
 
         if (in_array($typeName, ['char', 'bpchar'], true)) {
-            $table->char($column, $length ?? 36);
+            $this->copyMysqlStringAttributes($table->char($column, $length ?? 36), $definition, $usersTable, $userKey);
 
             return;
         }
 
         if (in_array($typeName, ['varchar', 'string', 'character varying'], true)) {
-            $length === null ? $table->string($column) : $table->string($column, $length);
+            $stringColumn = $length === null ? $table->string($column) : $table->string($column, $length);
+            $this->copyMysqlStringAttributes($stringColumn, $definition, $usersTable, $userKey);
 
             return;
         }
@@ -173,5 +176,31 @@ return new class () extends Migration {
         }
 
         return (int) $matches[1];
+    }
+
+    /**
+     * @param Fluent<string, mixed> $column
+     * @param array<string, mixed> $definition
+     */
+    private function copyMysqlStringAttributes(Fluent $column, array $definition, string $sourceTable, string $sourceColumn): void
+    {
+        $connection = DB::connection();
+        if (! in_array($connection->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
+        $collation = $definition['collation'] ?? null;
+        if (is_string($collation) && $collation !== '') {
+            $column->collation($collation);
+        }
+
+        $charset = $connection->selectOne(
+            'select character_set_name as charset from information_schema.columns where table_schema = ? and table_name = ? and column_name = ?',
+            [$connection->getDatabaseName(), $connection->getTablePrefix() . $sourceTable, $sourceColumn],
+        );
+        $charsetName = is_object($charset) ? ($charset->charset ?? null) : null;
+        if (is_string($charsetName) && $charsetName !== '') {
+            $column->charset($charsetName);
+        }
     }
 };
