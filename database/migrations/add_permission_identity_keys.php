@@ -142,23 +142,41 @@ return new class () extends Migration {
             return;
         }
 
-        if (
-            $driver === 'sqlite'
-            && (
-                ! $this->identityColumnsAreRequired($tableName)
-                || $this->identityColumnsHaveDefaults($tableName)
-            )
-        ) {
+        if ($driver === 'sqlite' && ! $this->sqliteIdentityColumnsAreReady($tableName)) {
             $this->rebuildSqliteIdentityColumns($tableName);
         }
     }
 
     private function identitySchemaIsComplete(string $tableName): bool
     {
+        $driver = DB::connection()->getDriverName();
+        $defaultsReady = $driver === 'sqlite'
+            ? $this->identityColumnsHaveEmptyDefaults($tableName)
+            : ! $this->identityColumnsHaveDefaults($tableName);
+
         return Schema::hasIndex($tableName, self::NAME_INDEX)
             && Schema::hasIndex($tableName, self::SLUG_INDEX)
             && $this->identityColumnsAreRequired($tableName)
-            && ! $this->identityColumnsHaveDefaults($tableName);
+            && $defaultsReady;
+    }
+
+    private function sqliteIdentityColumnsAreReady(string $tableName): bool
+    {
+        return $this->identityColumnsAreRequired($tableName)
+            && $this->identityColumnsHaveEmptyDefaults($tableName);
+    }
+
+    private function identityColumnsHaveEmptyDefaults(string $tableName): bool
+    {
+        $columns = collect(Schema::getColumns($tableName))->keyBy('name');
+
+        foreach (['name_scope_key', 'slug_scope_key'] as $column) {
+            if (! in_array($columns->get($column)['default'] ?? null, ["''", '""'], true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function identityColumnsHaveDefaults(string $tableName): bool
@@ -205,7 +223,9 @@ return new class () extends Migration {
                 $definition .= ' not null';
             }
 
-            if (! $isIdentity && $column['default'] !== null && $column['auto_increment'] !== true) {
+            if ($isIdentity) {
+                $definition .= " default ''";
+            } elseif ($column['default'] !== null && $column['auto_increment'] !== true) {
                 $definition .= ' default ' . $column['default'];
             }
 

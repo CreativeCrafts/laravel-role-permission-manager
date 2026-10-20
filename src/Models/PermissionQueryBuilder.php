@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -20,6 +22,15 @@ final class PermissionQueryBuilder extends Builder
     {
         if (self::$rewritingIdentityUpdate || ! $this->changesPermissionIdentity($values)) {
             return parent::update($values);
+        }
+
+        if ($this->containsSqlExpression($values)) {
+            $updated = parent::update($values);
+            if ($updated > 0 && app()->bound(AuthorizationCache::class)) {
+                app(AuthorizationCache::class)->invalidate();
+            }
+
+            return $updated;
         }
 
         return $this->getConnection()->transaction(function () use ($values): int {
@@ -51,6 +62,20 @@ final class PermissionQueryBuilder extends Builder
     {
         foreach (['name', 'slug', 'scope'] as $field) {
             if (array_key_exists($field, $values)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    private function containsSqlExpression(array $values): bool
+    {
+        foreach ($values as $value) {
+            if ($value instanceof Expression) {
                 return true;
             }
         }

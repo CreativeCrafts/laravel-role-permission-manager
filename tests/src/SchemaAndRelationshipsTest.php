@@ -114,8 +114,8 @@ it('runs the published migrations down in foreign-key-safe order and reinstalls'
     expect(Schema::hasColumn($permissions, 'slug_scope_key'))->toBeTrue()
         ->and($columns['name_scope_key']['nullable'])->toBeFalse()
         ->and($columns['slug_scope_key']['nullable'])->toBeFalse()
-        ->and($columns['name_scope_key']['default'])->toBeNull()
-        ->and($columns['slug_scope_key']['default'])->toBeNull()
+        ->and($columns['name_scope_key']['default'])->toBe(DB::getDriverName() === 'sqlite' ? "''" : null)
+        ->and($columns['slug_scope_key']['default'])->toBe(DB::getDriverName() === 'sqlite' ? "''" : null)
         ->and(Schema::hasIndex($permissions, 'lprm_perm_name_scope_key_uq'))->toBeTrue()
         ->and(Schema::hasIndex($permissions, 'lprm_perm_slug_scope_key_uq'))->toBeTrue();
 });
@@ -278,6 +278,39 @@ it('matches user pivot columns to an unsigned integer user primary key', functio
     $rolePivot = collect(Schema::getColumns('increment_user_roles'))->firstWhere('name', 'user_id');
 
     expect($rolePivot['type_name'])->toBe($userKey['type_name']);
+});
+
+it('derives identity keys when a query-builder insert omits them', function () {
+    $table = (string) config('role-permission-manager.permissions_table');
+
+    DB::table($table)->insert([
+        'name' => 'raw insert',
+        'slug' => 'raw-insert',
+        'scope' => null,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $row = DB::table($table)->where('slug', 'raw-insert')->first();
+
+    expect($row->name_scope_key)->toBe(PermissionIdentity::key('name', 'raw insert', null))
+        ->and($row->slug_scope_key)->toBe(PermissionIdentity::key('slug', 'raw-insert', null));
+});
+
+it('applies sql expressions in bulk permission updates', function () {
+    $permission = Permission::factory()->create([
+        'name' => 'Lower me',
+        'slug' => 'Keep-Case',
+        'scope' => 'team',
+    ]);
+
+    Permission::query()->whereKey($permission->getKey())->update([
+        'slug' => DB::raw('lower(slug)'),
+    ]);
+    $fresh = $permission->fresh();
+
+    expect($fresh->slug)->toBe('keep-case')
+        ->and($fresh->slug_scope_key)->toBe(PermissionIdentity::key('slug', 'keep-case', 'team'))
+        ->and($fresh->name_scope_key)->toBe(PermissionIdentity::key('name', 'Lower me', 'team'));
 });
 
 it('recomputes identity keys for query-builder updates that bypass the model', function () {
