@@ -313,6 +313,31 @@ it('applies sql expressions in bulk permission updates', function () {
         ->and($fresh->name_scope_key)->toBe(PermissionIdentity::key('name', 'Lower me', 'team'));
 });
 
+it('preserves null and empty slugs in bulk updates while model saves still generate one', function () {
+    $permission = Permission::factory()->create([
+        'name' => 'Keep Me',
+        'slug' => 'keep-me',
+        'scope' => 'team',
+    ]);
+
+    Permission::query()->whereKey($permission->getKey())->update(['slug' => null]);
+    $cleared = $permission->fresh();
+
+    expect($cleared->getRawOriginal('slug'))->toBeNull()
+        ->and($cleared->slug_scope_key)->toBe(PermissionIdentity::key('slug', null, 'team'));
+
+    Permission::query()->whereKey($permission->getKey())->update(['slug' => '']);
+    $empty = $permission->fresh();
+
+    expect($empty->getRawOriginal('slug'))->toBe('')
+        ->and($empty->slug_scope_key)->toBe(PermissionIdentity::key('slug', '', 'team'));
+
+    $empty->slug = null;
+    $empty->save();
+
+    expect($empty->fresh()->getRawOriginal('slug'))->toBe('keep-me');
+});
+
 it('keeps non-fillable columns when a bulk identity update is applied', function () {
     $permission = Permission::factory()->create([
         'name' => 'Original',
