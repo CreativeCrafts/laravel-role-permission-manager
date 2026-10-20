@@ -80,9 +80,13 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         }
 
         $role->getConnection()->transaction(function () use ($role, $parent): void {
-            Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            if ($parent instanceof Role && ! $this->authorizationCache->sameDatabase($role, $parent)) {
+                throw new InvalidParentException('Parent role must use the same database connection.');
+            }
+
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             if ($parent instanceof Role) {
-                Role::query()->whereKey($parent->getKey())->lockForUpdate()->firstOrFail();
+                $parent->newQuery()->whereKey($parent->getKey())->lockForUpdate()->firstOrFail();
             }
 
             $role->parent()->associate($parent);
@@ -124,6 +128,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         string $slug,
         ?string $description = null,
         ?string $scope = null,
+        ?Connection $connection = null,
     ): Permission {
         $name = config('role-permission-manager.case_sensitive_permissions') ? $name : strtolower($name);
         $slug = config('role-permission-manager.case_sensitive_permissions') ? $slug : strtolower($slug);
@@ -134,7 +139,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             description: $description,
             scope: $scope,
         ));
-        $permission = (new CreateNewPermission($permissionData))();
+        $permission = (new CreateNewPermission($permissionData, $connection?->getName()))();
         $this->clearPermissionCache($permission);
 
         return $permission;
@@ -210,10 +215,11 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         $scopeWasProvided = func_num_args() >= 3;
 
         $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
-            Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
+                $role->getConnection(),
             );
 
             $role->permissions()->syncWithoutDetaching([$permissionModel->getKey()]);
@@ -237,10 +243,11 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         $scopeWasProvided = func_num_args() >= 3;
 
         $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
-            Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
+                $role->getConnection(),
             );
 
             $role->permissions()->detach($permissionModel);
@@ -281,9 +288,13 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         }
 
         return $role->getConnection()->transaction(function () use ($role, $permissions): array {
-            Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $resolved = collect($permissions)
-                ->map(fn (mixed $reference): Permission => $this->resolvePermissionReference($reference, true))
+                ->map(fn (mixed $reference): Permission => $this->resolvePermissionReference(
+                    $reference,
+                    true,
+                    $role->getConnection(),
+                ))
                 ->unique(static fn (Permission $permission): mixed => $permission->getKey())
                 ->values();
 
@@ -306,9 +317,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             $this->clearRoleCache($role);
 
             return [
-                'attached' => $this->permissionDescriptors($attached),
-                'detached' => $this->permissionDescriptors($detached),
-                'unchanged' => $this->permissionDescriptors($unchanged),
+                'attached' => $this->permissionDescriptors($attached, $role->getConnection()),
+                'detached' => $this->permissionDescriptors($detached, $role->getConnection()),
+                'unchanged' => $this->permissionDescriptors($unchanged, $role->getConnection()),
             ];
         });
     }
@@ -341,7 +352,10 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             return $permission->exists
                 && ($scope === null || $permission->scope === $scope)
                 && $userPermissions->contains(
-                    static fn (Permission $assigned): bool => $assigned->getKey() === $permission->getKey()
+                    fn (Permission $assigned): bool => $this->authorizationCache->sameDatabaseRecord(
+                        $assigned,
+                        $permission,
+                    )
                 );
         }
 
@@ -495,6 +509,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
+                $role->getConnection(),
             );
 
             $roles = collect([$role])->concat($this->getSubRoles($role));
@@ -527,6 +542,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
+                $role->getConnection(),
             );
 
             $roles = collect([$role])->concat($this->getSubRoles($role));
@@ -609,9 +625,16 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         );
     }
 
-    public function resolvePermissionReference(mixed $reference, bool $lockForUpdate = false): Permission
-    {
-        $query = Permission::query();
+    public function resolvePermissionReference(
+        mixed $reference,
+        bool $lockForUpdate = false,
+        ?Connection $connection = null,
+    ): Permission {
+        $permission = new Permission();
+        if ($connection instanceof Connection) {
+            $permission->setConnection($connection->getName());
+        }
+        $query = $permission->newQuery();
         if ($lockForUpdate) {
             $query->lockForUpdate();
         }
@@ -620,6 +643,12 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             if (! $reference->exists || $reference->getKey() === null) {
                 throw new InvalidPermissionReferenceException(
                     'Permission model references must be persisted.'
+                );
+            }
+
+            if ($connection instanceof Connection && ! $this->authorizationCache->onConnection($reference, $connection)) {
+                throw new InvalidPermissionReferenceException(
+                    'Permission reference uses a different database connection.'
                 );
             }
 
@@ -794,9 +823,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param list<int|string> $ids
      * @return list<array{id: int|string, slug: string, scope: string|null}>
      */
-    private function permissionDescriptors(array $ids): array
+    private function permissionDescriptors(array $ids, ?Connection $connection = null): array
     {
-        return $this->permissionsByIds($ids)
+        return $this->permissionsByIds($ids, $connection)
             ->map(static fn (Permission $permission): array => [
                 'id' => $permission->getKey(),
                 'slug' => (string) $permission->slug,

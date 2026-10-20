@@ -142,7 +142,8 @@ class Role extends Model
             return $permission->exists
                 && ($scope === null || $permission->scope === $scope)
                 && $permissions->contains(
-                    static fn (Permission $assigned): bool => $assigned->getKey() === $permission->getKey()
+                    static fn (Permission $assigned): bool => app(AuthorizationCache::class)
+                        ->sameDatabaseRecord($assigned, $permission)
                 );
         }
 
@@ -234,7 +235,7 @@ class Role extends Model
                     : $permission;
 
                 try {
-                    $resolved = $manager->resolvePermissionReference($reference, true);
+                    $resolved = $manager->resolvePermissionReference($reference, true, $this->getConnection());
                 } catch (ModelNotFoundException $exception) {
                     if (! Config::get('role-permission-manager.auto_create_permissions', false)) {
                         throw $exception;
@@ -244,10 +245,11 @@ class Role extends Model
                         $permission,
                         $permission,
                         scope: $scopeSpecified ? $scope : null,
+                        connection: $this->getConnection(),
                     );
                 }
             } else {
-                $resolved = $manager->resolvePermissionReference($permission, true);
+                $resolved = $manager->resolvePermissionReference($permission, true, $this->getConnection());
             }
 
             $this->permissions()->syncWithoutDetaching([$resolved->getKey()]);

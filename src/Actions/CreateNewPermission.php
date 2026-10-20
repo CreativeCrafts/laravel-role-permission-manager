@@ -20,7 +20,8 @@ final class CreateNewPermission implements CreateNewPermissionContract
      * @param PermissionData $permissionData The data transfer object containing permission information.
      */
     public function __construct(
-        protected PermissionData $permissionData
+        protected PermissionData $permissionData,
+        protected ?string $connectionName = null,
     ) {
     }
 
@@ -36,7 +37,12 @@ final class CreateNewPermission implements CreateNewPermissionContract
     public function __invoke(): Permission
     {
         try {
-            return Permission::query()->create(
+            $permission = new Permission();
+            if ($this->connectionName !== null) {
+                $permission->setConnection($this->connectionName);
+            }
+
+            return $permission->newQuery()->create(
                 $this->permissionData->toArray()
             );
         } catch (Exception $exception) {

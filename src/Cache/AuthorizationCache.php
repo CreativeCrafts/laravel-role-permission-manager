@@ -125,6 +125,23 @@ final class AuthorizationCache
         ];
     }
 
+    public function sameDatabase(Model $left, Model $right): bool
+    {
+        return $left->getTable() === $right->getTable()
+            && $this->databaseIdentity($left->getConnection()) === $this->databaseIdentity($right->getConnection());
+    }
+
+    public function sameDatabaseRecord(Model $left, Model $right): bool
+    {
+        return $left->getKey() === $right->getKey()
+            && $this->sameDatabase($left, $right);
+    }
+
+    public function onConnection(Model $model, Connection $connection): bool
+    {
+        return $this->databaseIdentity($model->getConnection()) === $this->databaseIdentity($connection);
+    }
+
     public function scopeIdentity(?string $scope, bool $specified): array
     {
         if (! $specified) {

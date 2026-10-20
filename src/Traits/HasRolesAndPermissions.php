@@ -6,6 +6,7 @@ namespace CreativeCrafts\LaravelRolePermissionManager\Traits;
 
 use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionReferenceException;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
@@ -345,7 +346,14 @@ trait HasRolesAndPermissions
                     ));
         }
 
-        return $role->exists && $this->roles()->whereKey($role->getKey())->exists();
+        if (! $role->exists) {
+            return false;
+        }
+
+        $assigned = $this->roles()->whereKey($role->getKey())->first();
+
+        return $assigned instanceof Role
+            && app(AuthorizationCache::class)->sameDatabase($assigned, $role);
     }
 
     /**
@@ -411,7 +419,20 @@ trait HasRolesAndPermissions
      */
     protected function getRoleModel(Role|string $role): Role
     {
-        return is_string($role) ? Role::where('slug', $role)->firstOrFail() : $role;
+        $related = $this->roles()->getRelated();
+        if (is_string($role)) {
+            $found = $related->newQuery()->where('slug', $role)->first();
+
+            return $found instanceof Role
+                ? $found
+                : throw (new ModelNotFoundException())->setModel(Role::class);
+        }
+
+        if (! $role->exists || ! $related instanceof Role || ! app(AuthorizationCache::class)->sameDatabase($role, $related)) {
+            throw new InvalidPermissionReferenceException('Role reference uses a different database connection.');
+        }
+
+        return $role;
     }
 
     /**
@@ -436,22 +457,34 @@ trait HasRolesAndPermissions
         ?string $scope,
         bool $scopeWasProvided,
     ): Permission {
+        $related = $this->permissions()->getRelated();
         if ($permission instanceof Permission) {
+            if (
+                ! $permission->exists
+                || ! $related instanceof Permission
+                || ! app(AuthorizationCache::class)->sameDatabase($permission, $related)
+            ) {
+                throw new InvalidPermissionReferenceException(
+                    'Permission reference uses a different database connection.'
+                );
+            }
+
             return $permission;
         }
 
         $reference = $scopeWasProvided
             ? new PermissionReference($permission, $scope)
             : $permission;
+        $manager = app(LaravelRolePermissionManager::class);
 
         try {
-            return app(LaravelRolePermissionManager::class)->resolvePermissionReference($reference);
+            return $manager->resolvePermissionReference($reference, false, $related->getConnection());
         } catch (ModelNotFoundException $exception) {
             if (! Config::get('role-permission-manager.auto_create_permissions')) {
                 throw $exception;
             }
 
-            return Permission::query()->firstOrCreate(
+            $created = $related->newQuery()->firstOrCreate(
                 [
                     'slug' => $permission,
                     'scope' => $scopeWasProvided ? $scope : null,
@@ -460,6 +493,11 @@ trait HasRolesAndPermissions
                     'name' => $permission,
                 ],
             );
+            if (! $created instanceof Permission) {
+                throw new InvalidPermissionReferenceException('Permission reference could not be resolved.');
+            }
+
+            return $created;
         }
     }
 }

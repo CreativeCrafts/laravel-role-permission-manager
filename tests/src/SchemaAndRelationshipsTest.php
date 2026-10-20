@@ -313,6 +313,26 @@ it('applies sql expressions in bulk permission updates', function () {
         ->and($fresh->name_scope_key)->toBe(PermissionIdentity::key('name', 'Lower me', 'team'));
 });
 
+it('keeps non-fillable columns when a bulk identity update is applied', function () {
+    $permission = Permission::factory()->create([
+        'name' => 'Original',
+        'slug' => 'original-slug',
+        'scope' => 'team',
+    ]);
+    $createdAt = $permission->created_at->copy()->subDay();
+
+    Permission::query()->whereKey($permission->getKey())->update([
+        'slug' => 'renamed-slug',
+        'created_at' => $createdAt,
+    ]);
+    $fresh = $permission->fresh();
+
+    expect($fresh->slug)->toBe('renamed-slug')
+        ->and($fresh->created_at?->toDateTimeString())->toBe($createdAt->toDateTimeString())
+        ->and($fresh->slug_scope_key)->toBe(PermissionIdentity::key('slug', 'renamed-slug', 'team'))
+        ->and($fresh->name_scope_key)->toBe(PermissionIdentity::key('name', 'Original', 'team'));
+});
+
 it('recomputes identity keys for query-builder updates that bypass the model', function () {
     $permission = Permission::factory()->create([
         'name' => 'a😀b',

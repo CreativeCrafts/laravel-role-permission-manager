@@ -43,7 +43,7 @@ final class PermissionQueryBuilder extends Builder
                         continue;
                     }
 
-                    $permission->fill($values);
+                    $permission->forceFill($values);
                     $permission->save();
                     $updated++;
                 }
