@@ -17,6 +17,7 @@ use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidParentExceptio
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionReferenceException;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -149,16 +150,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllRoles(): Collection
     {
+        $role = new Role();
+        $connection = $role->getConnection();
         /** @var list<int|string> $roleIds */
         $roleIds = $this->authorizationCache->remember(
             'role-catalog-ids',
-            ['table' => (new Role())->getTable()],
+            [
+                'table' => $role->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
+            ],
             static fn (): array => Role::query()->orderBy((new Role())->getKeyName())->pluck(
                 (new Role())->getKeyName()
             )->all(),
         );
 
-        return $this->rolesByIds($roleIds);
+        return $this->rolesByIds($roleIds, $connection);
     }
 
     /**
@@ -171,16 +177,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllPermissions(): Collection
     {
+        $permission = new Permission();
+        $connection = $permission->getConnection();
         /** @var list<int|string> $permissionIds */
         $permissionIds = $this->authorizationCache->remember(
             'permission-catalog-ids',
-            ['table' => (new Permission())->getTable()],
+            [
+                'table' => $permission->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
+            ],
             static fn (): array => Permission::query()->orderBy((new Permission())->getKeyName())->pluck(
                 (new Permission())->getKeyName()
             )->all(),
         );
 
-        return $this->permissionsByIds($permissionIds);
+        return $this->permissionsByIds($permissionIds, $connection);
     }
 
     /**
@@ -286,9 +297,9 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 ->map(static fn (Permission $permission): mixed => $permission->getKey())
                 ->all();
 
-            $attached = array_values(array_diff($targetIds, $currentIds));
-            $detached = array_values(array_diff($currentIds, $targetIds));
-            $unchanged = array_values(array_intersect($currentIds, $targetIds));
+            $attached = $this->sortedIds(array_diff($targetIds, $currentIds));
+            $detached = $this->sortedIds(array_diff($currentIds, $targetIds));
+            $unchanged = $this->sortedIds(array_intersect($currentIds, $targetIds));
 
             $role->permissions()->sync($targetIds);
             $role->unsetRelation('permissions');
@@ -357,13 +368,19 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllPermissionsForUser(mixed $user, ?string $scope = null): Collection
     {
+        $connection = $user instanceof Model ? $user->getConnection() : null;
         /** @var list<int|string> $permissionIds */
         $permissionIds = $this->authorizationCache->remember(
             'effective-permission-ids',
             $this->authorizationCache->principalIdentity($user),
             function () use ($user): array {
             if ($this->isSuperAdmin($user)) {
-                return Permission::query()->pluck((new Permission())->getKeyName())->all();
+                $permission = new Permission();
+                if ($user instanceof Model) {
+                    $permission->setConnection($user->getConnection()->getName());
+                }
+
+                return $permission->newQuery()->pluck($permission->getKeyName())->all();
             }
 
             $directPermissions = $user->permissions()->get();
@@ -382,7 +399,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             },
         );
 
-        $permissions = $this->permissionsByIds($permissionIds);
+        $permissions = $this->permissionsByIds($permissionIds, $connection);
 
         if ($scope === null) {
             return $permissions;
@@ -407,11 +424,14 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             return $this->getAllPermissions();
         }
 
+        $permission = new Permission();
+        $connection = $permission->getConnection();
         /** @var list<int|string> $permissionIds */
         $permissionIds = $this->authorizationCache->remember(
             'permission-catalog-scope-ids',
             [
-                'table' => (new Permission())->getTable(),
+                'table' => $permission->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
                 'scope' => $this->authorizationCache->scopeIdentity($scope, true),
             ],
             static fn (): array => Permission::query()
@@ -421,7 +441,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 ->all(),
         );
 
-        return $this->permissionsByIds($permissionIds);
+        return $this->permissionsByIds($permissionIds, $connection);
     }
 
     /**
@@ -540,6 +560,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getUserRoles(mixed $user): Collection
     {
+        $connection = $user instanceof Model ? $user->getConnection() : null;
         /** @var list<int|string> $roleIds */
         $roleIds = $this->authorizationCache->remember(
             'principal-role-ids',
@@ -550,7 +571,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 ->all(),
         );
 
-        return $this->rolesByIds($roleIds);
+        return $this->rolesByIds($roleIds, $connection);
     }
 
     /**
@@ -708,15 +729,19 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param list<int|string> $ids
      * @return Collection<int, Permission>
      */
-    private function permissionsByIds(array $ids): Collection
+    private function permissionsByIds(array $ids, ?Connection $connection = null): Collection
     {
         if ($ids === []) {
             return collect();
         }
 
         $positions = array_flip(array_map('strval', $ids));
+        $permission = new Permission();
+        if ($connection instanceof Connection) {
+            $permission->setConnection($connection->getName());
+        }
 
-        return Permission::query()
+        return $permission->newQuery()
             ->whereKey($ids)
             ->get()
             ->sortBy(static fn (Permission $permission): int => $positions[(string) $permission->getKey()])
@@ -727,19 +752,42 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param list<int|string> $ids
      * @return Collection<int, Role>
      */
-    private function rolesByIds(array $ids): Collection
+    private function rolesByIds(array $ids, ?Connection $connection = null): Collection
     {
         if ($ids === []) {
             return collect();
         }
 
         $positions = array_flip(array_map('strval', $ids));
+        $role = new Role();
+        if ($connection instanceof Connection) {
+            $role->setConnection($connection->getName());
+        }
 
-        return Role::query()
+        return $role->newQuery()
             ->whereKey($ids)
             ->get()
             ->sortBy(static fn (Role $role): int => $positions[(string) $role->getKey()])
             ->values();
+    }
+
+    /**
+     * @param array<int|string, mixed> $ids
+     * @return list<int|string>
+     */
+    private function sortedIds(array $ids): array
+    {
+        $ids = array_values($ids);
+        usort($ids, static function (mixed $left, mixed $right): int {
+            $leftKey = (string) $left;
+            $rightKey = (string) $right;
+            $bothNumeric = preg_match('/\A-?\d+\z/', $leftKey) === 1
+                && preg_match('/\A-?\d+\z/', $rightKey) === 1;
+
+            return $bothNumeric ? ((int) $leftKey <=> (int) $rightKey) : strcmp($leftKey, $rightKey);
+        });
+
+        return $ids;
     }
 
     /**

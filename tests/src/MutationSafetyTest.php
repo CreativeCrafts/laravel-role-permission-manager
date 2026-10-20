@@ -92,6 +92,57 @@ it('requires explicit clear and reports unchanged assignments deterministically'
         ->and($role->fresh()->permissions)->toBeEmpty();
 });
 
+it('sorts synchronization categories by permission id', function () {
+    $manager = app(LaravelRolePermissionManager::class);
+    $role = Role::factory()->create();
+    $first = Permission::factory()->create(['name' => 'First', 'slug' => 'first-id', 'scope' => 'a']);
+    $second = Permission::factory()->create(['name' => 'Second', 'slug' => 'second-id', 'scope' => 'b']);
+    $third = Permission::factory()->create(['name' => 'Third', 'slug' => 'third-id', 'scope' => 'c']);
+    $role->permissions()->attach([$third->getKey(), $second->getKey()]);
+
+    $replaced = $manager->syncPermissions($role, [$second, $first]);
+
+    expect(array_column($replaced['attached'], 'id'))->toBe([$first->getKey()])
+        ->and(array_column($replaced['unchanged'], 'id'))->toBe([$second->getKey()])
+        ->and(array_column($replaced['detached'], 'id'))->toBe([$third->getKey()]);
+
+    $role->permissions()->attach($third->getKey());
+    $cleared = $manager->syncPermissions($role, [$first]);
+
+    expect(array_column($cleared['detached'], 'id'))->toBe([$second->getKey(), $third->getKey()])
+        ->and(array_column($cleared['unchanged'], 'id'))->toBe([$first->getKey()]);
+
+    $reversed = $manager->syncPermissions($role, [$third, $second, $first]);
+
+    expect(array_column($reversed['attached'], 'id'))->toBe([$second->getKey(), $third->getKey()])
+        ->and(array_column($reversed['unchanged'], 'id'))->toBe([$first->getKey()])
+        ->and($reversed['detached'])->toBeEmpty();
+});
+
+it('rejects a cycle when parent_id is saved directly and keeps the check inside a transaction', function () {
+    $parent = Role::factory()->create(['name' => 'Locked parent', 'slug' => 'locked-parent']);
+    $child = Role::factory()->create(['name' => 'Locked child', 'slug' => 'locked-child']);
+    $levelDuringLookup = 0;
+    DB::listen(function ($query) use (&$levelDuringLookup, $child): void {
+        if (! str_contains(strtolower($query->sql), 'parent_id')) {
+            return;
+        }
+
+        $levelDuringLookup = max($levelDuringLookup, $child->getConnection()->transactionLevel());
+    });
+
+    $child->parent_id = $parent->getKey();
+    $child->save();
+
+    expect($child->fresh()->parent_id)->toBe($parent->getKey())
+        ->and($levelDuringLookup)->toBeGreaterThan(0);
+
+    $parent->parent_id = $child->getKey();
+
+    expect(fn () => $parent->save())->toThrow(RoleHierarchyCycleException::class)
+        ->and($parent->fresh()->parent_id)->toBeNull();
+});
+
 it('rolls back synchronization with its outer transaction', function () {
     $manager = app(LaravelRolePermissionManager::class);
     $role = Role::factory()->create();

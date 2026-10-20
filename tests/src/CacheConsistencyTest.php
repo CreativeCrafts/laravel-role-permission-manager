@@ -9,10 +9,12 @@ use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 it('performs zero cache store IO when caching is disabled', function () {
     Config::set('role-permission-manager.use_cache', false);
@@ -67,7 +69,63 @@ it('separates cache identities by user model and guard', function () {
 
     expect($cache->remember('identity-probe', $primaryWeb, static fn (): string => 'primary'))->toBe('primary')
         ->and($cache->remember('identity-probe', $alternateWeb, static fn (): string => 'alternate'))->toBe('alternate')
-        ->and($cache->remember('identity-probe', $primaryApi, static fn (): string => 'api'))->toBe('api');
+        ->and($cache->remember('identity-probe', $primaryApi, static fn (): string => 'api'))->toBe('api')
+        ->and($primaryWeb['database'])->toBe($cache->databaseIdentity($primary->getConnection()))
+        ->and($alternateWeb['database'])->toBe($primaryWeb['database']);
+});
+
+it('does not reuse cached permission ids from another database connection', function () {
+    $defaultPermission = Permission::factory()->create([
+        'name' => 'Default side',
+        'slug' => 'default-side',
+        'scope' => null,
+    ]);
+    $defaultRole = Role::factory()->create(['name' => 'Default role', 'slug' => 'default-role']);
+    $defaultUser = createTestUser();
+    $defaultUser->permissions()->attach($defaultPermission);
+    $defaultUser->roles()->attach($defaultRole);
+
+    $originalDefault = (string) config('database.default');
+    config()->set('database.connections.tenant_cache', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+        'foreign_key_constraints' => true,
+    ]);
+
+    try {
+        config()->set('database.default', 'tenant_cache');
+        DB::purge('tenant_cache');
+        DB::reconnect('tenant_cache');
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->nullable();
+        });
+        $migrations = dirname(__DIR__, 2) . '/database/migrations';
+        (include $migrations . '/create_role_permission_manager_tables.php')->up();
+        (include $migrations . '/add_permission_identity_keys.php')->up();
+
+        $tenantPermission = Permission::factory()->create([
+            'name' => 'Tenant side',
+            'slug' => 'tenant-side',
+            'scope' => null,
+        ]);
+        $tenantRole = Role::factory()->create(['name' => 'Tenant role', 'slug' => 'tenant-role']);
+        $tenantUser = TestUser::factory()->create(['name' => 'Tenant']);
+        $tenantUser->setConnection('tenant_cache');
+        $tenantUser->permissions()->attach($tenantPermission->getKey());
+        $tenantUser->roles()->attach($tenantRole->getKey());
+    } finally {
+        config()->set('database.default', $originalDefault);
+    }
+
+    expect($defaultUser->getAllPermissions()->pluck('slug')->all())->toBe(['default-side'])
+        ->and($tenantUser->getAllPermissions()->pluck('slug')->all())->toBe(['tenant-side'])
+        ->and($tenantUser->getAllPermissions()->pluck('slug')->all())->toBe(['tenant-side'])
+        ->and($defaultUser->getUserRoles()->pluck('slug')->all())->toBe(['default-role'])
+        ->and($tenantUser->getUserRoles()->pluck('slug')->all())->toBe(['tenant-role'])
+        ->and($tenantUser->getUserRoles()->pluck('slug')->all())->toBe(['tenant-role']);
 });
 
 it('invalidates direct role and privileged revocation for loaded and independent models', function () {

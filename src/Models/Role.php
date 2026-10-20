@@ -104,7 +104,7 @@ class Role extends Model
 
         while ($queue !== []) {
             $parentId = array_shift($queue);
-            $children = static::query()
+            $children = $this->newQuery()
                 ->where('parent_id', $parentId)
                 ->orderBy($keyName)
                 ->get();
@@ -197,7 +197,7 @@ class Role extends Model
 
             $permissions = $permissions->concat($current->permissions()->get());
             $parentId = $current->getAttribute('parent_id');
-            $current = $parentId === null ? null : static::query()->find($parentId);
+            $current = $parentId === null ? null : $this->newQuery()->find($parentId);
         }
 
         return $permissions
@@ -257,6 +257,18 @@ class Role extends Model
     }
 
     /**
+     * @param array<string, mixed> $options
+     */
+    public function save(array $options = [])
+    {
+        if (! $this->parentAssignmentNeedsTransaction()) {
+            return parent::save($options);
+        }
+
+        return $this->getConnection()->transaction(fn (): bool => parent::save($options));
+    }
+
+    /**
      * Boot the model.
      */
     protected static function boot(): void
@@ -309,10 +321,22 @@ class Role extends Model
         );
     }
 
+    private function parentAssignmentNeedsTransaction(): bool
+    {
+        return $this->isDirty('parent_id')
+            && $this->parent_id !== null
+            && $this->getConnection()->transactionLevel() === 0;
+    }
+
     private function assertAcyclicParent(int $parentId): void
     {
         if ($this->exists && (string) $parentId === (string) $this->getKey()) {
             throw new RoleHierarchyCycleException('A role cannot be its own parent.');
+        }
+
+        $this->reserveSqliteHierarchyLock();
+        if ($this->exists) {
+            $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->first();
         }
 
         $visited = [];
@@ -334,7 +358,20 @@ class Role extends Model
                 throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
             }
 
-            $currentId = static::query()->lockForUpdate()->whereKey($currentId)->value('parent_id');
+            $currentId = $this->newQuery()->lockForUpdate()->whereKey($currentId)->value('parent_id');
         }
+    }
+
+    private function reserveSqliteHierarchyLock(): void
+    {
+        $connection = $this->getConnection();
+        if ($connection->getDriverName() !== 'sqlite' || $connection->transactionLevel() < 1) {
+            return;
+        }
+
+        $key = $connection->getQueryGrammar()->wrap($this->getKeyName());
+        $connection->table($this->getTable())
+            ->whereRaw('0 = 1')
+            ->update([$this->getKeyName() => $connection->raw($key)]);
     }
 }

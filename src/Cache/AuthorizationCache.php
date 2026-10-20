@@ -104,7 +104,24 @@ final class AuthorizationCache
                 'type' => get_debug_type($principal->getAuthIdentifier()),
                 'value' => (string) $principal->getAuthIdentifier(),
             ],
+            'database' => $this->databaseIdentity($this->principalConnection($principal)),
             'scope' => $this->scopeIdentity($scope, $scopeSpecified),
+        ];
+    }
+
+    public function principalConnection(Authenticatable $principal): Connection
+    {
+        return $principal instanceof Model ? $principal->getConnection() : DB::connection();
+    }
+
+    /**
+     * @return array{connection: string, database: string}
+     */
+    public function databaseIdentity(Connection $connection): array
+    {
+        return [
+            'connection' => $connection->getName(),
+            'database' => (string) $connection->getDatabaseName(),
         ];
     }
 
