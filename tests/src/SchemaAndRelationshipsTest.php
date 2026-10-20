@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\UnableToCreatePermissionException;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
@@ -336,6 +337,34 @@ it('preserves null and empty slugs in bulk updates while model saves still gener
     $empty->save();
 
     expect($empty->fresh()->getRawOriginal('slug'))->toBe('keep-me');
+});
+
+it('publishes bulk identity invalidation only after the surrounding transaction commits', function () {
+    $cache = app(AuthorizationCache::class);
+    $permission = Permission::factory()->create([
+        'name' => 'Committed',
+        'slug' => 'committed',
+        'scope' => 'team',
+    ]);
+    $generation = $cache->currentGeneration();
+
+    try {
+        DB::transaction(function () use ($permission): void {
+            Permission::query()->whereKey($permission->getKey())->update(['slug' => 'rolled-back']);
+            throw new RuntimeException('rollback');
+        });
+    } catch (RuntimeException) {
+    }
+
+    expect($cache->currentGeneration())->toBe($generation)
+        ->and($permission->fresh()->slug)->toBe('committed');
+
+    DB::transaction(function () use ($permission): void {
+        Permission::query()->whereKey($permission->getKey())->update(['slug' => 'committed-slug']);
+    });
+
+    expect($cache->currentGeneration())->toBeGreaterThan($generation)
+        ->and($permission->fresh()->slug)->toBe('committed-slug');
 });
 
 it('keeps non-fillable columns when a bulk identity update is applied', function () {

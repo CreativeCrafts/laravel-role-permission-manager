@@ -24,7 +24,7 @@ final class PermissionQueryBuilder extends Builder
             && $this->changesPermissionIdentity($values)
             && app()->bound(AuthorizationCache::class)
         ) {
-            app(AuthorizationCache::class)->invalidate();
+            app(AuthorizationCache::class)->invalidate($this->getModel());
         }
 
         return $updated;
