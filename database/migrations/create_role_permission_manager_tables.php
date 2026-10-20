@@ -158,10 +158,10 @@ return new class () extends Migration {
     {
         return match ($typeName) {
             'tinyint' => $unsigned ? 'unsignedTinyInteger' : 'tinyInteger',
-            'smallint' => $unsigned ? 'unsignedSmallInteger' : 'smallInteger',
+            'smallint', 'int2' => $unsigned ? 'unsignedSmallInteger' : 'smallInteger',
             'mediumint' => $unsigned ? 'unsignedMediumInteger' : 'mediumInteger',
-            'int', 'integer' => $unsigned ? 'unsignedInteger' : 'integer',
-            'bigint' => $unsigned ? 'unsignedBigInteger' : 'bigInteger',
+            'int', 'integer', 'int4' => $unsigned ? 'unsignedInteger' : 'integer',
+            'bigint', 'int8' => $unsigned ? 'unsignedBigInteger' : 'bigInteger',
             default => null,
         };
     }

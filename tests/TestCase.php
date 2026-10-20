@@ -44,6 +44,23 @@ class TestCase extends Orchestra
             $databaseDriver = 'lrpm_mysql';
         }
 
+        if ($databaseDriver === 'pgsql') {
+            $app['config']->set('database.connections.lrpm_pgsql', [
+                'driver' => 'pgsql',
+                'host' => getenv('LRPM_TEST_DB_HOST') ?: '127.0.0.1',
+                'port' => getenv('LRPM_TEST_DB_PORT') ?: '5432',
+                'database' => getenv('LRPM_TEST_DB_DATABASE') ?: 'lrpm_test',
+                'username' => getenv('LRPM_TEST_DB_USERNAME') ?: 'postgres',
+                'password' => getenv('LRPM_TEST_DB_PASSWORD') ?: '',
+                'charset' => 'utf8',
+                'prefix' => '',
+                'prefix_indexes' => true,
+                'search_path' => 'public',
+                'sslmode' => 'prefer',
+            ]);
+            $databaseDriver = 'lrpm_pgsql';
+        }
+
         $app['config']->set('database.default', $databaseDriver);
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
         $app['config']->set('cache.default', 'array');
@@ -54,10 +71,10 @@ class TestCase extends Orchestra
         );
         $app['config']->set('role-permission-manager.cache_store', 'array');
 
-        if ($databaseDriver === 'lrpm_mysql') {
-            $databaseName = (string) $app['config']->get('database.connections.lrpm_mysql.database');
+        if (in_array($databaseDriver, ['lrpm_mysql', 'lrpm_pgsql'], true)) {
+            $databaseName = (string) $app['config']->get("database.connections.{$databaseDriver}.database");
             if (! str_ends_with($databaseName, '_test')) {
-                throw new RuntimeException('MySQL integration database name must end with _test.');
+                throw new RuntimeException('Integration database name must end with _test.');
             }
 
             Schema::disableForeignKeyConstraints();
@@ -68,6 +85,31 @@ class TestCase extends Orchestra
                 'custom_permissions',
                 'custom_roles',
                 'legacy_permissions',
+                'uuid_user_roles',
+                'uuid_user_permissions',
+                'uuid_role_permissions',
+                'uuid_permissions',
+                'uuid_roles',
+                'uuid_users',
+                'increment_user_roles',
+                'increment_user_permissions',
+                'increment_role_permissions',
+                'increment_permissions',
+                'increment_roles',
+                'increment_users',
+                'int4_user_roles',
+                'int4_user_permissions',
+                'int4_role_permissions',
+                'int4_permissions',
+                'int4_roles',
+                'int4_users',
+                'int2_user_roles',
+                'int2_user_permissions',
+                'int2_role_permissions',
+                'int2_permissions',
+                'int2_roles',
+                'int2_users',
+                'string_key_users',
                 config('role-permission-manager.user_permission_table'),
                 config('role-permission-manager.role_permission_table'),
                 config('role-permission-manager.user_role_table'),

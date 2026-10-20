@@ -6,6 +6,8 @@ use CreativeCrafts\LaravelRolePermissionManager\Exceptions\UnableToCreatePermiss
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use CreativeCrafts\LaravelRolePermissionManager\Permissions\PermissionIdentity;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
@@ -166,8 +168,8 @@ it('completes identity indexes when the columns already exist', function () {
         $table->string('scope')->nullable();
         $table->text('description')->nullable();
         $table->timestamps();
-        $table->char('name_scope_key', 64)->nullable();
-        $table->char('slug_scope_key', 64)->nullable();
+        $table->string('name_scope_key', PermissionIdentity::LENGTH)->nullable();
+        $table->string('slug_scope_key', PermissionIdentity::LENGTH)->nullable();
     });
     DB::table('legacy_permissions')->insert([
         'name' => 'view reports',
@@ -185,7 +187,9 @@ it('completes identity indexes when the columns already exist', function () {
         ->and($columns['slug_scope_key']['nullable'])->toBeFalse()
         ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_name_scope_key_uq'))->toBeTrue()
         ->and(Schema::hasIndex('legacy_permissions', 'lprm_perm_slug_scope_key_uq'))->toBeTrue()
-        ->and(DB::table('legacy_permissions')->whereNull('name_scope_key')->doesntExist())->toBeTrue();
+        ->and(DB::table('legacy_permissions')->whereNull('name_scope_key')->doesntExist())->toBeTrue()
+        ->and(DB::table('legacy_permissions')->value('name_scope_key'))
+        ->toBe(PermissionIdentity::key('name', 'view reports', null));
 });
 
 it('keeps distinct permission identities separate and reports only cyclic role ids', function () {
@@ -275,6 +279,94 @@ it('matches user pivot columns to an unsigned integer user primary key', functio
 
     expect($rolePivot['type_name'])->toBe($userKey['type_name']);
 });
+
+it('recomputes identity keys for query-builder updates that bypass the model', function () {
+    $permission = Permission::factory()->create([
+        'name' => 'a😀b',
+        'slug' => 'emoji',
+        'scope' => null,
+    ]);
+
+    expect($permission->fresh()->name_scope_key)->toBe(PermissionIdentity::key('name', 'a😀b', null))
+        ->and($permission->fresh()->slug_scope_key)->toBe(PermissionIdentity::key('slug', 'emoji', null));
+
+    DB::table($permission->getTable())->where('id', $permission->getKey())->update([
+        'name' => 'renamed',
+        'scope' => '0',
+        'name_scope_key' => 'stale',
+        'slug_scope_key' => 'stale',
+    ]);
+    $fresh = $permission->fresh();
+
+    expect($fresh->name_scope_key)->toBe(PermissionIdentity::key('name', 'renamed', '0'))
+        ->and($fresh->slug_scope_key)->toBe(PermissionIdentity::key('slug', 'emoji', '0'));
+});
+
+it('rolls back a bulk identity update when a later row duplicates another', function () {
+    $first = Permission::factory()->create(['name' => 'alpha', 'slug' => 'alpha', 'scope' => 'team']);
+    $second = Permission::factory()->create(['name' => 'beta', 'slug' => 'beta', 'scope' => 'team']);
+
+    expect(fn () => Permission::query()->whereKey([$first->getKey(), $second->getKey()])->update([
+        'name' => 'same',
+        'slug' => 'same',
+        'scope' => 'team',
+    ]))->toThrow(QueryException::class);
+
+    expect($first->fresh()->name)->toBe('alpha')
+        ->and($second->fresh()->slug)->toBe('beta');
+});
+
+it('maps postgres integer widths onto matching foreign-key columns', function () {
+    $migration = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+    $method = new ReflectionMethod($migration, 'integerColumnMethod');
+
+    expect($method->invoke($migration, 'int2', false))->toBe('smallInteger')
+        ->and($method->invoke($migration, 'int4', false))->toBe('integer')
+        ->and($method->invoke($migration, 'int8', false))->toBe('bigInteger')
+        ->and($method->invoke($migration, 'int', true))->toBe('unsignedInteger')
+        ->and($method->invoke($migration, 'bigint', false))->toBe('bigInteger');
+});
+
+it('keeps a postgres int4 user key from widening to bigint', function () {
+    if (Schema::getConnection()->getDriverName() !== 'pgsql') {
+        $this->markTestSkipped('PostgreSQL reports integer primary keys as int4.');
+    }
+
+    DB::statement('create table int4_users (id integer primary key, name varchar(255) not null)');
+    DB::statement('create table int2_users (id smallint primary key, name varchar(255) not null)');
+    Config::set([
+        'role-permission-manager.users_table' => 'int4_users',
+        'role-permission-manager.user_model_key' => 'id',
+        'role-permission-manager.roles_table' => 'int4_roles',
+        'role-permission-manager.permissions_table' => 'int4_permissions',
+        'role-permission-manager.user_role_table' => 'int4_user_roles',
+        'role-permission-manager.role_permission_table' => 'int4_role_permissions',
+        'role-permission-manager.user_permission_table' => 'int4_user_permissions',
+    ]);
+    $migration = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+
+    $migration->up();
+
+    $rolePivot = collect(Schema::getColumns('int4_user_roles'))->firstWhere('name', 'user_id');
+    expect($rolePivot['type_name'])->toBe('int4');
+
+    Config::set([
+        'role-permission-manager.users_table' => 'int2_users',
+        'role-permission-manager.roles_table' => 'int2_roles',
+        'role-permission-manager.permissions_table' => 'int2_permissions',
+        'role-permission-manager.user_role_table' => 'int2_user_roles',
+        'role-permission-manager.role_permission_table' => 'int2_role_permissions',
+        'role-permission-manager.user_permission_table' => 'int2_user_permissions',
+    ]);
+    $second = include __DIR__ . '/../../database/migrations/create_role_permission_manager_tables.php';
+    $second->up();
+    $smallPivot = collect(Schema::getColumns('int2_user_roles'))->firstWhere('name', 'user_id');
+
+    expect($smallPivot['type_name'])->toBe('int2');
+})->skip(
+    fn (): bool => getenv('LRPM_TEST_DB_CONNECTION') !== 'pgsql',
+    'PostgreSQL reports integer primary keys as int4.',
+);
 
 it('recomputes identity keys when permissions are bulk updated', function () {
     $permission = Permission::factory()->create([

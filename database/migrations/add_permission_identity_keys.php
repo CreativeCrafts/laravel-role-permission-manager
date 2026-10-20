@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CreativeCrafts\LaravelRolePermissionManager\Permissions\PermissionIdentity;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     private const NAME_INDEX = 'lprm_perm_name_scope_key_uq';
     private const SLUG_INDEX = 'lprm_perm_slug_scope_key_uq';
+    private const POSTGRES_FUNCTION = 'lprm_permission_identity_keys';
 
     public function up(): void
     {
@@ -23,31 +25,31 @@ return new class () extends Migration {
             );
         }
 
-        if ($hasNameKey && $hasSlugKey && $this->identitySchemaIsComplete($tableName)) {
-            return;
-        }
+        if (! ($hasNameKey && $hasSlugKey && $this->identitySchemaIsComplete($tableName))) {
+            $this->assertNoDuplicateIdentities($tableName);
 
-        $this->assertNoDuplicateIdentities($tableName);
+            if (! $hasNameKey && ! $hasSlugKey) {
+                Schema::table($tableName, function (Blueprint $table): void {
+                    $this->addIdentityColumn($table, 'name_scope_key');
+                    $this->addIdentityColumn($table, 'slug_scope_key');
+                });
+            }
 
-        if (! $hasNameKey && ! $hasSlugKey) {
-            Schema::table($tableName, function (Blueprint $table): void {
-                $table->char('name_scope_key', 64)->nullable(false)->default('');
-                $table->char('slug_scope_key', 64)->nullable(false)->default('');
+            $this->backfillIdentityKeys($tableName);
+            $this->enforceRequiredIdentityColumns($tableName);
+
+            Schema::table($tableName, function (Blueprint $table) use ($tableName): void {
+                if (! Schema::hasIndex($tableName, self::NAME_INDEX)) {
+                    $table->unique('name_scope_key', self::NAME_INDEX);
+                }
+
+                if (! Schema::hasIndex($tableName, self::SLUG_INDEX)) {
+                    $table->unique('slug_scope_key', self::SLUG_INDEX);
+                }
             });
         }
 
-        $this->backfillIdentityKeys($tableName);
-        $this->enforceRequiredIdentityColumns($tableName);
-
-        Schema::table($tableName, function (Blueprint $table) use ($tableName): void {
-            if (! Schema::hasIndex($tableName, self::NAME_INDEX)) {
-                $table->unique('name_scope_key', self::NAME_INDEX);
-            }
-
-            if (! Schema::hasIndex($tableName, self::SLUG_INDEX)) {
-                $table->unique('slug_scope_key', self::SLUG_INDEX);
-            }
-        });
+        $this->ensureIdentityTriggers($tableName);
     }
 
     public function down(): void
@@ -59,6 +61,8 @@ return new class () extends Migration {
         ) {
             return;
         }
+
+        $this->dropIdentityTriggers($tableName);
 
         $hasNameIndex = Schema::hasIndex($tableName, self::NAME_INDEX);
         $hasSlugIndex = Schema::hasIndex($tableName, self::SLUG_INDEX);
@@ -121,8 +125,9 @@ return new class () extends Migration {
         $table = DB::connection()->getSchemaGrammar()->wrapTable($tableName);
 
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $type = 'varchar(' . PermissionIdentity::LENGTH . ') character set utf8mb4 collate utf8mb4_bin not null';
             DB::statement(
-                "alter table {$table} modify name_scope_key char(64) not null, modify slug_scope_key char(64) not null"
+                "alter table {$table} modify name_scope_key {$type}, modify slug_scope_key {$type}"
             );
 
             return;
@@ -245,8 +250,113 @@ return new class () extends Migration {
 
     private function identityKey(string $field, string $value, mixed $scope): string
     {
-        $scopeTag = $scope === null ? "null\0" : "string\0{$scope}";
+        return PermissionIdentity::key($field, $value, $scope);
+    }
 
-        return hash('sha256', "{$field}\0{$value}\0{$scopeTag}");
+    private function addIdentityColumn(Blueprint $table, string $name): void
+    {
+        $column = $table->string($name, PermissionIdentity::LENGTH)->nullable(false)->default('');
+        $driver = DB::connection()->getDriverName();
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $column->collation('utf8mb4_bin');
+        } elseif ($driver === 'pgsql') {
+            $column->collation('C');
+        }
+    }
+
+    private function ensureIdentityTriggers(string $tableName): void
+    {
+        $driver = DB::connection()->getDriverName();
+        $wrappedTable = DB::connection()->getSchemaGrammar()->wrapTable($tableName);
+        $insertTrigger = $this->triggerName($tableName, 'insert');
+        $updateTrigger = $this->triggerName($tableName, 'update');
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $this->dropTrigger($driver, $insertTrigger, $wrappedTable);
+            $this->dropTrigger($driver, $updateTrigger, $wrappedTable);
+            $assignments = 'SET NEW.name_scope_key = ' . PermissionIdentity::sql($driver, 'name')
+                . ', NEW.slug_scope_key = ' . PermissionIdentity::sql($driver, 'slug');
+            DB::unprepared(
+                "CREATE TRIGGER {$insertTrigger} BEFORE INSERT ON {$wrappedTable} FOR EACH ROW {$assignments}"
+            );
+            DB::unprepared(
+                "CREATE TRIGGER {$updateTrigger} BEFORE UPDATE ON {$wrappedTable} FOR EACH ROW {$assignments}"
+            );
+
+            return;
+        }
+
+        if ($driver === 'pgsql') {
+            DB::unprepared($this->postgresIdentityFunction());
+            $this->dropTrigger($driver, $insertTrigger, $wrappedTable);
+            DB::unprepared(
+                "CREATE TRIGGER {$insertTrigger} BEFORE INSERT OR UPDATE ON {$wrappedTable} FOR EACH ROW EXECUTE PROCEDURE "
+                . self::POSTGRES_FUNCTION . '()'
+            );
+
+            return;
+        }
+
+        if ($driver === 'sqlite') {
+            $this->dropTrigger($driver, $insertTrigger, $wrappedTable);
+            $this->dropTrigger($driver, $updateTrigger, $wrappedTable);
+            $nameSql = PermissionIdentity::sql($driver, 'name');
+            $slugSql = PermissionIdentity::sql($driver, 'slug');
+            $assignment = "name_scope_key = {$nameSql}, slug_scope_key = {$slugSql}";
+            DB::unprepared(
+                "CREATE TRIGGER {$insertTrigger} AFTER INSERT ON {$wrappedTable} FOR EACH ROW WHEN NEW.name_scope_key IS NOT ({$nameSql}) OR NEW.slug_scope_key IS NOT ({$slugSql}) BEGIN UPDATE {$wrappedTable} SET {$assignment} WHERE id = NEW.id; END"
+            );
+            DB::unprepared(
+                "CREATE TRIGGER {$updateTrigger} AFTER UPDATE ON {$wrappedTable} FOR EACH ROW WHEN NEW.name_scope_key IS NOT ({$nameSql}) OR NEW.slug_scope_key IS NOT ({$slugSql}) BEGIN UPDATE {$wrappedTable} SET {$assignment} WHERE id = NEW.id; END"
+            );
+
+            return;
+        }
+
+        throw new RuntimeException(
+            "Permission identity triggers are not implemented for the {$driver} driver."
+        );
+    }
+
+    private function dropIdentityTriggers(string $tableName): void
+    {
+        $driver = DB::connection()->getDriverName();
+        $wrappedTable = DB::connection()->getSchemaGrammar()->wrapTable($tableName);
+        $this->dropTrigger($driver, $this->triggerName($tableName, 'insert'), $wrappedTable);
+        $this->dropTrigger($driver, $this->triggerName($tableName, 'update'), $wrappedTable);
+
+        if ($driver === 'pgsql') {
+            DB::unprepared('DROP FUNCTION IF EXISTS ' . self::POSTGRES_FUNCTION . '()');
+        }
+    }
+
+    private function dropTrigger(string $driver, string $trigger, string $wrappedTable): void
+    {
+        if ($driver === 'pgsql') {
+            DB::unprepared("DROP TRIGGER IF EXISTS {$trigger} ON {$wrappedTable}");
+
+            return;
+        }
+
+        if (in_array($driver, ['mysql', 'mariadb', 'sqlite'], true)) {
+            DB::unprepared("DROP TRIGGER IF EXISTS {$trigger}");
+        }
+    }
+
+    private function triggerName(string $tableName, string $event): string
+    {
+        return 'lprm_pi_' . substr(hash('sha256', $tableName . '|' . $event), 0, 16);
+    }
+
+    private function postgresIdentityFunction(): string
+    {
+        $nameSql = PermissionIdentity::sql('pgsql', 'name');
+        $slugSql = PermissionIdentity::sql('pgsql', 'slug');
+
+        return 'CREATE OR REPLACE FUNCTION ' . self::POSTGRES_FUNCTION . '() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN '
+            . "NEW.name_scope_key := {$nameSql}; "
+            . "NEW.slug_scope_key := {$slugSql}; "
+            . 'RETURN NEW; END $$';
     }
 };

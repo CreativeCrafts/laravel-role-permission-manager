@@ -22,24 +22,26 @@ final class PermissionQueryBuilder extends Builder
             return parent::update($values);
         }
 
-        self::$rewritingIdentityUpdate = true;
+        return $this->getConnection()->transaction(function () use ($values): int {
+            self::$rewritingIdentityUpdate = true;
 
-        try {
-            $updated = 0;
-            foreach ($this->clone()->get() as $permission) {
-                if (! $permission instanceof Permission) {
-                    continue;
+            try {
+                $updated = 0;
+                foreach ($this->clone()->get() as $permission) {
+                    if (! $permission instanceof Permission) {
+                        continue;
+                    }
+
+                    $permission->fill($values);
+                    $permission->save();
+                    $updated++;
                 }
 
-                $permission->fill($values);
-                $permission->save();
-                $updated++;
+                return $updated;
+            } finally {
+                self::$rewritingIdentityUpdate = false;
             }
-
-            return $updated;
-        } finally {
-            self::$rewritingIdentityUpdate = false;
-        }
+        });
     }
 
     /**

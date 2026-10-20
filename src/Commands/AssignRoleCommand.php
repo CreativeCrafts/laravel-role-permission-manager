@@ -53,9 +53,11 @@ class AssignRoleCommand extends Command
         $userModel = config('role-permission-manager.user_model');
 
         $lookup = (string) $identifier;
-        $byKey = $userModel::query()->whereKey($lookup)->first();
-        if ($byKey instanceof Model) {
-            return $byKey;
+        if ($this->lookupCanMatchPrimaryKey($userModel, $lookup)) {
+            $byKey = $userModel::query()->whereKey($lookup)->first();
+            if ($byKey instanceof Model) {
+                return $byKey;
+            }
         }
 
         if (filter_var($lookup, FILTER_VALIDATE_EMAIL) === false) {
@@ -66,5 +68,18 @@ class AssignRoleCommand extends Command
         $user = $userModel::query()->where('email', $lookup)->firstOrFail();
 
         return $user;
+    }
+
+    /**
+     * PostgreSQL rejects a non-numeric binding for an integer primary key.
+     * String keys, including email-shaped ones, still use the key lookup first.
+     *
+     * @param class-string<Model> $userModel
+     */
+    private function lookupCanMatchPrimaryKey(string $userModel, string $lookup): bool
+    {
+        $model = new $userModel();
+
+        return $model->getKeyType() !== 'int' || preg_match('/\A-?\d+\z/', $lookup) === 1;
     }
 }

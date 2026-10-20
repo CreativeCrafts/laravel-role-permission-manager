@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CreativeCrafts\LaravelRolePermissionManager\Models;
 
 use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
+use CreativeCrafts\LaravelRolePermissionManager\Permissions\PermissionIdentity;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -171,16 +172,13 @@ class Permission extends Model
                 $schema->hasColumn($permission->getTable(), 'name_scope_key')
                 && $schema->hasColumn($permission->getTable(), 'slug_scope_key')
             ) {
-                $scopeTag = $permission->scope === null
-                    ? "null\0"
-                    : "string\0{$permission->scope}";
                 $permission->setAttribute(
                     'name_scope_key',
-                    hash('sha256', "name\0{$permission->name}\0{$scopeTag}"),
+                    PermissionIdentity::key('name', $permission->name, $permission->scope),
                 );
                 $permission->setAttribute(
                     'slug_scope_key',
-                    hash('sha256', "slug\0{$permission->slug}\0{$scopeTag}"),
+                    PermissionIdentity::key('slug', $permission->slug, $permission->scope),
                 );
             }
         });
