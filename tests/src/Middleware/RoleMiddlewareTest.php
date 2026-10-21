@@ -50,7 +50,7 @@ it('returns next response if user has the required role', function () {
     Auth::shouldReceive('check')->once()->andReturn(true);
     $user = mock(AuthenticatableWithRolesAndPermissions::class);
     $this->request->shouldReceive('user')->once()->andReturn($user);
-    $user->shouldReceive('hasRole')->with('admin')->once()->andReturn(true);
+    $user->shouldReceive('hasRoleBySlug')->with('admin')->once()->andReturn(true);
 
     $response = $this->middleware->handle($this->request, $this->next, 'admin');
 
@@ -62,8 +62,8 @@ it('returns unauthorized response if user does not have any of the required role
     $user = mock(AuthenticatableWithRolesAndPermissions::class);
     $this->request->shouldReceive('user')->once()->andReturn($user);
     $this->request->shouldReceive('expectsJson')->once()->andReturn(false);
-    $user->shouldReceive('hasRole')->with('admin')->once()->andReturn(false);
-    $user->shouldReceive('hasRole')->with('manager')->once()->andReturn(false);
+    $user->shouldReceive('hasRoleBySlug')->with('admin')->once()->andReturn(false);
+    $user->shouldReceive('hasRoleBySlug')->with('manager')->once()->andReturn(false);
 
     try {
         $this->middleware->handle($this->request, $this->next, 'admin', 'manager');
@@ -91,8 +91,8 @@ it('allows access if user has at least one of the required roles', function () {
     Auth::shouldReceive('check')->once()->andReturn(true);
     $user = mock(AuthenticatableWithRolesAndPermissions::class);
     $this->request->shouldReceive('user')->once()->andReturn($user);
-    $user->shouldReceive('hasRole')->with('admin')->once()->andReturn(false);
-    $user->shouldReceive('hasRole')->with('manager')->once()->andReturn(true);
+    $user->shouldReceive('hasRoleBySlug')->with('admin')->once()->andReturn(false);
+    $user->shouldReceive('hasRoleBySlug')->with('manager')->once()->andReturn(true);
 
     $response = $this->middleware->handle($this->request, $this->next, 'admin', 'manager');
 

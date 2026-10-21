@@ -68,10 +68,10 @@ describe('create method', function () {
         expect($this->policy->create($this->user))->toBeFalse();
     });
 
-    it('allows creating specific role when user has that role', function () {
+    it('denies creating a role when user only has that role', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('create roles')->andReturn(false);
-        $this->user->shouldReceive('hasRole')->with('specific-role')->andReturn(true);
-        expect($this->policy->create($this->user, 'specific-role'))->toBeTrue();
+        $this->user->shouldNotReceive('hasRole');
+        expect($this->policy->create($this->user, 'specific-role'))->toBeFalse();
     });
 });
 
@@ -81,17 +81,15 @@ describe('update method', function () {
         expect($this->policy->update($this->user, $this->role))->toBeTrue();
     });
 
-    it('allows updating a role when user has that specific role', function () {
+    it('denies updating a role when user only has that specific role', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('edit roles')->andReturn(false);
-        $this->role->shouldReceive('getAttribute')->with('name')->andReturn('specific-role');
-        $this->user->shouldReceive('hasRole')->with('specific-role')->andReturn(true);
-        expect($this->policy->update($this->user, $this->role))->toBeTrue();
+        $this->user->shouldNotReceive('hasRole');
+        expect($this->policy->update($this->user, $this->role))->toBeFalse();
     });
 
     it('denies updating a role when user lacks both general permission and specific role', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('edit roles')->andReturn(false);
-        $this->role->shouldReceive('getAttribute')->with('name')->andReturn('specific-role');
-        $this->user->shouldReceive('hasRole')->with('specific-role')->andReturn(false);
+        $this->user->shouldNotReceive('hasRole');
         expect($this->policy->update($this->user, $this->role))->toBeFalse();
     });
 });
@@ -102,17 +100,15 @@ describe('delete method', function () {
         expect($this->policy->delete($this->user, $this->role))->toBeTrue();
     });
 
-    it('allows deleting a role when user has that specific role', function () {
+    it('denies deleting a role when user only has that specific role', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('delete roles')->andReturn(false);
-        $this->role->shouldReceive('getAttribute')->with('name')->andReturn('specific-role');
-        $this->user->shouldReceive('hasRole')->with('specific-role')->andReturn(true);
-        expect($this->policy->delete($this->user, $this->role))->toBeTrue();
+        $this->user->shouldNotReceive('hasRole');
+        expect($this->policy->delete($this->user, $this->role))->toBeFalse();
     });
 
     it('denies deleting a role when user lacks both general permission and specific role', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('delete roles')->andReturn(false);
-        $this->role->shouldReceive('getAttribute')->with('name')->andReturn('specific-role');
-        $this->user->shouldReceive('hasRole')->with('specific-role')->andReturn(false);
+        $this->user->shouldNotReceive('hasRole');
         expect($this->policy->delete($this->user, $this->role))->toBeFalse();
     });
 });

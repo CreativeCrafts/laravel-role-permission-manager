@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
@@ -18,20 +19,25 @@ class AssignRoleCommand extends Command
     public function handle(): int
     {
         $userIdentifier = $this->argument('user');
-        $roleName = $this->argument('role');
+        $roleSlug = $this->argument('role');
 
         try {
             $user = $this->findUser($userIdentifier);
 
             /** @var Role $role */
-            $role = Role::where('name', $roleName)->orWhere('slug', $roleName)->firstOrFail();
-            $user->roles()->syncWithoutDetaching([$role->id]);
+            $role = Role::where('slug', $roleSlug)->firstOrFail();
+            if (! $user instanceof AuthenticatableWithRolesAndPermissions) {
+                $this->error('Configured user model must implement the package authorization contract.');
+                return self::FAILURE;
+            }
 
-            $this->info("Role '{$role->name}' assigned to user '{$user->name}'.");
-            return 0;
+            $user->assignRole($role);
+
+            $this->info("Role '{$role->name}' assigned to user '{$user->getAttribute('name')}'.");
+            return self::SUCCESS;
         } catch (ModelNotFoundException $e) {
-            $this->error("Role '{$roleName}' not found: {$e->getMessage()}");
-            return 1;
+            $this->error("User or role slug '{$roleSlug}' was not found: {$e->getMessage()}");
+            return self::FAILURE;
         }
     }
 
@@ -46,11 +52,34 @@ class AssignRoleCommand extends Command
     {
         $userModel = config('role-permission-manager.user_model');
 
+        $lookup = (string) $identifier;
+        if ($this->lookupCanMatchPrimaryKey($userModel, $lookup)) {
+            $byKey = $userModel::query()->whereKey($lookup)->first();
+            if ($byKey instanceof Model) {
+                return $byKey;
+            }
+        }
+
+        if (filter_var($lookup, FILTER_VALIDATE_EMAIL) === false) {
+            throw (new ModelNotFoundException())->setModel($userModel, [$lookup]);
+        }
+
         /** @var Model $user */
-        $user = $userModel::where('id', $identifier)
-            ->orWhere('email', $identifier)
-            ->firstOrFail();
+        $user = $userModel::query()->where('email', $lookup)->firstOrFail();
 
         return $user;
+    }
+
+    /**
+     * PostgreSQL rejects a non-numeric binding for an integer primary key.
+     * String keys, including email-shaped ones, still use the key lookup first.
+     *
+     * @param class-string<Model> $userModel
+     */
+    private function lookupCanMatchPrimaryKey(string $userModel, string $lookup): bool
+    {
+        $model = new $userModel();
+
+        return $model->getKeyType() !== 'int' || preg_match('/\A-?\d+\z/', $lookup) === 1;
     }
 }

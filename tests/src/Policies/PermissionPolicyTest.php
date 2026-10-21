@@ -38,22 +38,19 @@ describe('viewAny method', function () {
 
 describe('view method', function () {
     it('allows viewing specific permission when user has general view permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(true);
         expect($this->policy->view($this->user, $this->permission))->toBeTrue();
     });
 
     it('allows viewing specific permission when user has that specific permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(true);
+        $this->user->shouldReceive('hasPermissionTo')->with($this->permission)->andReturn(true);
         expect($this->policy->view($this->user, $this->permission))->toBeTrue();
     });
 
     it('denies viewing specific permission when user lacks both general and specific permissions', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('view permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(false);
+        $this->user->shouldReceive('hasPermissionTo')->with($this->permission)->andReturn(false);
         expect($this->policy->view($this->user, $this->permission))->toBeFalse();
     });
 });
@@ -69,59 +66,53 @@ describe('create method', function () {
         expect($this->policy->create($this->user))->toBeFalse();
     });
 
-    it('allows creating specific permission when user has that permission', function () {
+    it('denies creating when user only has the requested permission', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('create permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('specific-permission')->andReturn(true);
-        expect($this->policy->create($this->user, 'specific-permission'))->toBeTrue();
+        $this->user->shouldNotReceive('hasPermissionTo')->with('specific-permission');
+        expect($this->policy->create($this->user, 'specific-permission'))->toBeFalse();
     });
 
     it('denies creating specific permission when user lacks both general and specific permissions', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('create permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('specific-permission')->andReturn(false);
+        $this->user->shouldNotReceive('hasPermissionTo')->with('specific-permission');
         expect($this->policy->create($this->user, 'specific-permission'))->toBeFalse();
     });
 });
 
 describe('update method', function () {
     it('allows updating permission when user has general edit permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('edit permissions')->andReturn(true);
         expect($this->policy->update($this->user, $this->permission))->toBeTrue();
     });
 
-    it('allows updating specific permission when user has that specific permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
+    it('denies updating when user only has that specific permission', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('edit permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(true);
-        expect($this->policy->update($this->user, $this->permission))->toBeTrue();
+        $this->user->shouldNotReceive('hasPermissionTo')->with('test-permission');
+        expect($this->policy->update($this->user, $this->permission))->toBeFalse();
     });
 
     it('denies updating specific permission when user lacks both general and specific permissions', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('edit permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(false);
+        $this->user->shouldNotReceive('hasPermissionTo')->with('test-permission');
         expect($this->policy->update($this->user, $this->permission))->toBeFalse();
     });
 });
 
 describe('delete method', function () {
     it('allows deleting permission when user has general delete permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('delete permissions')->andReturn(true);
         expect($this->policy->delete($this->user, $this->permission))->toBeTrue();
     });
 
-    it('allows deleting specific permission when user has that specific permission', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
+    it('denies deleting when user only has that specific permission', function () {
         $this->user->shouldReceive('hasPermissionTo')->with('delete permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(true);
-        expect($this->policy->delete($this->user, $this->permission))->toBeTrue();
+        $this->user->shouldNotReceive('hasPermissionTo')->with('test-permission');
+        expect($this->policy->delete($this->user, $this->permission))->toBeFalse();
     });
 
     it('denies deleting specific permission when user lacks both general and specific permissions', function () {
-        $this->permission->shouldReceive('getAttribute')->with('name')->andReturn('test-permission');
         $this->user->shouldReceive('hasPermissionTo')->with('delete permissions')->andReturn(false);
-        $this->user->shouldReceive('hasPermissionTo')->with('test-permission')->andReturn(false);
+        $this->user->shouldNotReceive('hasPermissionTo')->with('test-permission');
         expect($this->policy->delete($this->user, $this->permission))->toBeFalse();
     });
 });

@@ -6,13 +6,13 @@ import {useMemo} from 'react';
 
 interface Permission {
   slug: string;
-  scope?: string;
+  scope?: string | null;
 }
 
 interface PageProps {
-  auth: {
-    permissions: Permission[];
-    roles: string[];
+  auth?: {
+    permissions?: Permission[];
+    roles?: string[];
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,8 +42,7 @@ type UsePermissions = {
  */
 export function usePermissions(): UsePermissions {
   const { auth } = usePage<PageProps>().props;
-  const permissions = useMemo(() => auth.permissions || [], [auth.permissions]);
-  const roles = useMemo(() => auth.roles || [], [auth.roles]);
+  const permissions = useMemo(() => auth?.permissions || [], [auth?.permissions]);
 
   /**
    * Checks if the user has a specific permission, optionally within a scope.
@@ -55,19 +54,13 @@ export function usePermissions(): UsePermissions {
   const can = useMemo(
     () =>
       (permission: string, scope: string | null = null): boolean => {
-        if (roles.includes('super-admin')) {
-          return true;
-        }
-
-        if (scope) {
-          return permissions.some(
-            (p: Permission): boolean => p.slug === permission && p.scope === scope,
-          );
-        }
-
-        return permissions.some((p: Permission): boolean => p.slug === permission);
+        return permissions.some(
+          (p: Permission): boolean =>
+            p.slug === permission &&
+            (scope === null ? (p.scope ?? null) === null : p.scope === scope),
+        );
       },
-    [permissions, roles],
+    [permissions],
   );
 
   /**

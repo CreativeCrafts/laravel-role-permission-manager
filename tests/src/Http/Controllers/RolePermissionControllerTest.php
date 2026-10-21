@@ -5,6 +5,8 @@ declare(strict_types=1);
 use CreativeCrafts\LaravelRolePermissionManager\Helpers\ClassExistsWrapper;
 use CreativeCrafts\LaravelRolePermissionManager\Http\Controllers\RolePermissionController;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\MetadataAccessAuthorizer;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
@@ -16,18 +18,46 @@ covers(RolePermissionController::class);
 
 beforeEach(function () {
     setUpTableSchema();
-    $this->controller = new RolePermissionController();
+    $authorizer = new class () implements MetadataAccessAuthorizer {
+        public function canViewRoleCatalog(AuthenticatableWithRolesAndPermissions $actor): bool
+        {
+            return true;
+        }
+
+        public function canViewPermissionCatalog(AuthenticatableWithRolesAndPermissions $actor): bool
+        {
+            return true;
+        }
+
+        public function canInspectOtherUsers(AuthenticatableWithRolesAndPermissions $actor): bool
+        {
+            return true;
+        }
+
+        public function canInspectUser(
+            AuthenticatableWithRolesAndPermissions $actor,
+            AuthenticatableWithRolesAndPermissions $target,
+        ): bool {
+            return true;
+        }
+    };
+    $this->controller = new RolePermissionController(metadataAccessAuthorizer: $authorizer);
     $this->manager = mock(LaravelRolePermissionManager::class);
     Config::set(
         'role-permission-manager.user_model',
         TestUser::class
     );
+    $this->requestFor = static function (TestUser $user, array $query = []): Request {
+        $request = Request::create('/', 'GET', $query);
+        $request->setUserResolver(static fn (): TestUser => $user);
+        return $request;
+    };
 });
 
 it('retrieves all roles', function () {
     Role::factory()->count(3)->create();
 
-    $response = $this->controller->getRoles();
+    $response = $this->controller->getRoles(($this->requestFor)(createTestUser()));
 
     expect($response->getStatusCode())->toBe(200)
         ->and(json_decode($response->getContent(), true))->toHaveCount(3);
@@ -40,7 +70,7 @@ it('retrieves permissions for a given scope', function () {
         ['name' => 'Permission 2', 'slug' => 'permission-2'],
     ]);
 
-    $request = Request::create('/', 'GET', ['scope' => $scope]);
+    $request = ($this->requestFor)(createTestUser(), ['scope' => $scope]);
     $this->manager->shouldReceive('getAllPermissionsForScope')
         ->with($scope)
         ->once()
@@ -57,7 +87,7 @@ it('retrieves roles for a specific user', function () {
     $role = Role::factory()->create();
     $user->assignRole($role);
 
-    $response = $this->controller->getUserRoles($user->id);
+    $response = $this->controller->getUserRoles(($this->requestFor)($user), $user->id);
 
     expect($response->getStatusCode())->toBe(200)
         ->and(json_decode($response->getContent(), true))->toHaveCount(1)
@@ -80,7 +110,11 @@ it('retrieves all permissions for a specific user', function () {
         ->once()
         ->andReturn($permissions);
 
-    $response = $this->controller->getUserPermissions($user->id, new Request(), $this->manager);
+    $response = $this->controller->getUserPermissions(
+        $user->id,
+        ($this->requestFor)($user),
+        $this->manager,
+    );
     $decodedResponse = json_decode($response->getContent(), true);
     $permissions = $permissions->toArray();
 
@@ -97,7 +131,7 @@ it('retrieves scoped permissions for a specific user', function () {
 
     $user->givePermissionTo($permission, $scope);
 
-    $response = $this->controller->getScopedPermissions($user->id, $scope);
+    $response = $this->controller->getScopedPermissions(($this->requestFor)($user), $user->id, $scope);
     $decodedResponse = json_decode($response->getContent(), true)[0];
 
     expect($response->getStatusCode())->toBe(200)
@@ -109,7 +143,7 @@ it('retrieves scoped permissions for a specific user', function () {
 });
 
 it('throws an exception when user is not found', function () {
-    $this->controller->getUserRoles(999);
+    $this->controller->getUserRoles(($this->requestFor)(createTestUser()), 999);
 })->throws(
     ModelNotFoundException::class,
     'No query results for model [CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser] 999'

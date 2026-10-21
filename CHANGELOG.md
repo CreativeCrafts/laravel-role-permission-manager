@@ -2,6 +2,30 @@
 
 All notable changes to `laravel-role-permission-manager` will be documented in this file.
 
+## Unreleased
+
+This change set requires a major-version release because it tightens authorization, scope, mutation, and return-value
+contracts. See [UPGRADE.md](UPGRADE.md).
+
+### Security
+
+- Restrict package Gate integration to a configurable prefix and abstain from unrelated host abilities.
+- Authorize package metadata catalogs and user-permission endpoints with deny-by-default cross-user access.
+- Use one exact configured privileged role name and exact role slugs at middleware boundaries.
+- Make scope and wildcard matching deterministic, exact, and independent of SQL wildcard/collation behavior.
+- Remove authorization-time permission creation and permission-payload logging.
+- Publish cache generations after committed supported mutations so revocations replace stale authority.
+
+### Changed
+
+- Resolve permission mutation references completely and atomically; ambiguous or partial inputs now fail without writes.
+- Require explicit permission clearing and return `attached`, `detached`, and `unchanged` descriptors from sync.
+- Reject role hierarchy cycles and traverse ancestors/descendants iteratively.
+- Correct public PHP signatures and inverse Eloquent relationships.
+- Add a read-only authorization-data preflight and additive portable permission identity keys.
+- Make frontend helpers consume current principal state and exact scopes without a hardcoded privileged bypass.
+- Add Laravel 10 and MySQL CI coverage plus Composer, syntax, Larastan, Pint, TypeScript, and OpenSpec gates.
+
 ## 1.0.3 - 2026-04-09
 
 remove unused view registration from package setup

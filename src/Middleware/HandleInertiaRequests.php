@@ -6,7 +6,6 @@ namespace CreativeCrafts\LaravelRolePermissionManager\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 
 /**
@@ -28,11 +27,9 @@ class HandleInertiaRequests
      */
     public function handle(Request $request, Closure $next): mixed
     {
-        $response = $next($request);
-
         $this->sharePermissions($request);
 
-        return $response;
+        return $next($request);
     }
 
     /**
@@ -45,11 +42,7 @@ class HandleInertiaRequests
     private function sharePermissions(Request $request): void
     {
         if (class_exists('Inertia\Inertia')) {
-            Inertia::share([
-                'auth' => [
-                    'permissions' => $this->getUserPermissions($request),
-                ],
-            ]);
+            Inertia::share('auth.permissions', fn (): array => $this->getUserPermissions($request));
         }
     }
 
@@ -69,15 +62,11 @@ class HandleInertiaRequests
             return [];
         }
 
-        $cacheKey = "user_permissions_{$user->id}";
-
-        return Cache::remember($cacheKey, now()->addMinutes(60), static function () use ($user) {
-            return $user->getAllPermissions()->map(function ($permission): array {
-                return [
-                    'slug' => $permission->slug,
-                    'scope' => $permission->scope ?? null,
-                ];
-            })->toArray();
-        });
+        return $user->getAllPermissions()->map(static function ($permission): array {
+            return [
+                'slug' => $permission->slug,
+                'scope' => $permission->scope,
+            ];
+        })->values()->toArray();
     }
 }

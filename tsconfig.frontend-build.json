@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build/frontend",
+    "rootDir": ".",
+    "declaration": false
+  },
+  "include": ["resources/js/permissions.ts"]
+}

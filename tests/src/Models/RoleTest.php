@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\AmbiguousPermissionReferenceException;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
@@ -171,12 +172,25 @@ describe('givePermissionTo method', function () {
         expect($this->role->permissions)->toHaveCount(1);
     });
 
-    it('accepts permission name as string and finds by name', function () {
-        $permission = Permission::factory()->create();
-        $this->role->givePermissionTo($permission->name);
+    it('does not treat a distinct permission name as a slug', function () {
+        Permission::factory()->create([
+            'name' => 'Edit Posts',
+            'slug' => 'edit-posts',
+            'scope' => null,
+        ]);
 
-        $this->role->refresh();
-        expect($this->role->permissions->contains(fn ($p) => $p->name === $permission->name))->toBeTrue();
+        expect(fn () => $this->role->givePermissionTo('Edit Posts'))
+            ->toThrow(ModelNotFoundException::class);
+        expect($this->role->fresh()->permissions)->toHaveCount(0);
+    });
+
+    it('rejects an ambiguous slug instead of attaching the first match', function () {
+        Permission::factory()->create(['name' => 'Shared null', 'slug' => 'shared', 'scope' => null]);
+        Permission::factory()->create(['name' => 'Shared zero', 'slug' => 'shared', 'scope' => '0']);
+
+        expect(fn () => $this->role->givePermissionTo('shared'))
+            ->toThrow(AmbiguousPermissionReferenceException::class);
+        expect($this->role->fresh()->permissions)->toHaveCount(0);
     });
 
     it('accepts permission slug as string and finds by slug', function () {

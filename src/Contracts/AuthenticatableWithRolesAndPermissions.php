@@ -12,7 +12,7 @@ use Illuminate\Support\Collection;
 
 interface AuthenticatableWithRolesAndPermissions extends Authenticatable
 {
-    public function hasPermissionTo(string $permission): bool;
+    public function hasPermissionTo(Permission|string $permission, ?string $scope = null): bool;
 
     public function assignRole(Role|string $role): void;
 
@@ -28,6 +28,12 @@ interface AuthenticatableWithRolesAndPermissions extends Authenticatable
 
     public function getAllPermissions(?string $scope = null): Collection;
 
+    public function getUserRoles(mixed $user = null): Collection;
+
+    public function getUserRoleNames(mixed $user = null): Collection;
+
+    public function getUserRoleSlugs(mixed $user = null): Collection;
+
     public function hasAnyRole(array $roles): bool;
 
     public function hasAllRoles(array $roles): bool;
@@ -37,6 +43,10 @@ interface AuthenticatableWithRolesAndPermissions extends Authenticatable
     public function hasSuperAdminRole(): bool;
 
     public function hasRole(Role|string $role): bool;
+
+    public function hasRoleByName(string $name): bool;
+
+    public function hasRoleBySlug(string $slug): bool;
 
     public function hasAllPermissions(array $permissions, ?string $scope = null): bool;
 }

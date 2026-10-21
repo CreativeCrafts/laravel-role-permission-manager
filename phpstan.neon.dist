@@ -6,6 +6,7 @@ parameters:
     paths:
         - src
         - config
+        - tests/Models/TestUser.php
 
     # The level 10 is the highest level
     level: 5
@@ -13,11 +14,6 @@ parameters:
     ignoreErrors:
        # - identifier: missingType.iterableValue
        # - identifier: missingType.generics
-
-    excludePaths:
-        - src/Commands/*
-        - src/Contracts/*
-        - src/Traits/*
 
     checkModelProperties: true
     inferPrivatePropertyTypeFromConstructor: true

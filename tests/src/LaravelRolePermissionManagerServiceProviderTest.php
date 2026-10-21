@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManagerServiceProvider;
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\HandleInertiaRequests;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\PermissionMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\RoleMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
+use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TraitOnlyUser;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Gate;
@@ -35,6 +37,11 @@ it('throws exception if user model is not a subclass of Eloquent Model', functio
 /* it('throws exception if user model does not use HasRolesAndPermissions trait', function () {
     LaravelRolePermissionManagerServiceProvider::registerUserModel(TestUser::class);
 })->throws(InvalidArgumentException::class, 'must use the HasRolesAndPermissions trait');*/
+
+it('rejects a user model that uses the trait without the authorization interface', function () {
+    expect(fn () => LaravelRolePermissionManagerServiceProvider::registerUserModel(TraitOnlyUser::class))
+        ->toThrow(InvalidArgumentException::class, 'AuthenticatableWithRolesAndPermissions');
+});
 
 it('registers a valid user model into config', function () {
     LaravelRolePermissionManagerServiceProvider::registerUserModel(TestUser::class);
@@ -150,28 +157,26 @@ it('registers cache if config is enabled', function () {
     Config::set('role-permission-manager.use_cache', true);
     Config::set('role-permission-manager.cache_store', 'array');
 
-    $appMock = Mockery::mock(app());
-    $appMock->shouldReceive('singleton')
-        ->once()
-        ->with('role-permission.cache', Mockery::type('callable'));
-
-    $provider = new LaravelRolePermissionManagerServiceProvider($appMock);
+    $provider = new LaravelRolePermissionManagerServiceProvider(app());
     $reflection = new ReflectionClass($provider);
     $method = $reflection->getMethod('registerCache');
     $method->setAccessible(true);
     $method->invoke($provider);
+
+    expect(app(AuthorizationCache::class)->enabled())->toBeTrue()
+        ->and(app('role-permission.cache'))->toBeInstanceOf(AuthorizationCache::class);
 });
 
-it('does not register cache if config is disabled', function () {
+it('registers a zero-io cache service if caching is disabled', function () {
     Config::set('role-permission-manager.use_cache', false);
-    $appMock = Mockery::mock(app());
-    $appMock->shouldNotReceive('singleton')->with('role-permission.cache', Mockery::any());
 
-    $provider = new LaravelRolePermissionManagerServiceProvider($appMock);
+    $provider = new LaravelRolePermissionManagerServiceProvider(app());
     $reflection = new ReflectionClass($provider);
     $method = $reflection->getMethod('registerCache');
     $method->setAccessible(true);
     $method->invoke($provider);
+
+    expect(app(AuthorizationCache::class)->enabled())->toBeFalse();
 });
 
 it('registers blade directives if config is enabled', function () {

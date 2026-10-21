@@ -5,18 +5,28 @@ declare(strict_types=1);
 namespace CreativeCrafts\LaravelRolePermissionManager\Commands;
 
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use Throwable;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 
 class SyncPermissionsCommand extends Command
 {
     protected $signature = 'role-permission:sync 
                             {role : The slug or ID of the role}
                             {permissions* : The slug(s) or ID(s) of the permissions to sync}
-                            {--use-ids : Use IDs instead of slugs for role and permissions}';
+                            {--use-ids : Use IDs instead of slugs for role and permissions}
+                            {--scope= : Exact scope for every slug, including an empty string or 0}
+                            {--clear : Explicitly remove all permissions from the role}';
 
     protected $description = 'Sync permissions for a role';
+
+    public function __construct(private readonly LaravelRolePermissionManager $manager)
+    {
+        parent::__construct();
+    }
 
     /**
      * Execute the console command to sync permissions for a role.
@@ -30,23 +40,42 @@ class SyncPermissionsCommand extends Command
     {
         $roleIdentifier = $this->argument('role');
         $permissionIdentifiers = $this->argument('permissions');
-        $useIds = $this->option('use-ids');
+        $useIds = (bool) $this->option('use-ids');
+        $clear = (bool) $this->option('clear');
+
+        if ($clear && $permissionIdentifiers !== []) {
+            $this->error('The --clear option cannot be combined with permission identifiers.');
+            return self::FAILURE;
+        }
+
+        if (! $clear && $permissionIdentifiers === []) {
+            $this->error('Provide permissions or use --clear explicitly.');
+            return self::FAILURE;
+        }
 
         $role = $this->getRole($roleIdentifier, $useIds);
         if (! $role instanceof Role) {
             return self::FAILURE;
         }
 
-        $permissions = $this->getPermissions($permissionIdentifiers, $useIds);
-        if ($permissions === []) {
+        try {
+            $permissions = $this->getPermissions($permissionIdentifiers, $useIds);
+        } catch (Throwable $exception) {
+            $this->error($exception->getMessage());
             return self::FAILURE;
         }
 
-        if (! $this->confirmSync($role, $permissions)) {
+        if (! $this->confirmSync($role, $permissions, $clear)) {
             return self::FAILURE;
         }
-        $result = (new LaravelRolePermissionManager())->syncPermissions($role, $permissions);
-        $this->displayResults($role, $result);
+
+        try {
+            $result = $this->manager->syncPermissions($role, $permissions, $clear);
+            $this->displayResults($role, $result);
+        } catch (Throwable $exception) {
+            $this->error("Permission synchronization failed: {$exception->getMessage()}");
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }
@@ -83,14 +112,24 @@ class SyncPermissionsCommand extends Command
     private function getPermissions(array $identifiers, bool $useIds): array
     {
         $permissions = [];
+        $scopeWasProvided = $this->option('scope') !== null;
+        $scope = $this->option('scope');
+
         foreach ($identifiers as $identifier) {
-            $permission = $useIds ? Permission::find($identifier) : Permission::where('slug', $identifier)->first();
-            if (! $permission) {
-                $this->error("Permission '{$identifier}' not found.");
-                continue;
+            if ($useIds) {
+                if (! ctype_digit((string) $identifier) || (int) $identifier < 1) {
+                    throw new InvalidArgumentException("Permission ID '{$identifier}' is invalid.");
+                }
+                $reference = (int) $identifier;
+            } elseif ($scopeWasProvided) {
+                $reference = new PermissionReference((string) $identifier, is_string($scope) ? $scope : null);
+            } else {
+                $reference = (string) $identifier;
             }
-            $permissions[] = $permission;
+
+            $permissions[] = $this->manager->resolvePermissionReference($reference);
         }
+
         return $permissions;
     }
 
@@ -103,8 +142,14 @@ class SyncPermissionsCommand extends Command
      * @param array $permissions An array of Permission objects to be synced with the role.
      * @return bool Returns true if the user confirms the sync operation, false otherwise.
      */
-    private function confirmSync(Role $role, array $permissions): bool
+    private function confirmSync(Role $role, array $permissions, bool $clear): bool
     {
+        if ($clear) {
+            return $this->confirm(
+                "Are you sure you want to remove all permissions from the role '{$role->name}'?"
+            );
+        }
+
         $permissionNames = implode(', ', array_map(fn ($p) => $p->name, $permissions));
         return $this->confirm(
             "Are you sure you want to sync the following permissions for the role '{$role->name}'?\n{$permissionNames}"
@@ -125,13 +170,25 @@ class SyncPermissionsCommand extends Command
     {
         $this->info("Permissions synced for role '{$role->name}' successfully.");
         if (! empty($result['attached'])) {
-            $this->info("Added permissions: " . implode(', ', $result['attached']));
+            $this->info('Added permissions: ' . $this->formatDescriptors($result['attached']));
         }
         if (! empty($result['detached'])) {
-            $this->info("Removed permissions: " . implode(', ', $result['detached']));
+            $this->info('Removed permissions: ' . $this->formatDescriptors($result['detached']));
         }
         if (empty($result['attached']) && empty($result['detached'])) {
             $this->info("No changes were made.");
         }
+    }
+
+    private function formatDescriptors(array $descriptors): string
+    {
+        return implode(', ', array_map(
+            static fn (array $descriptor): string => sprintf(
+                '%s[%s]',
+                $descriptor['slug'],
+                $descriptor['scope'] === null ? 'null' : $descriptor['scope'],
+            ),
+            $descriptors,
+        ));
     }
 }

@@ -6,21 +6,30 @@ namespace CreativeCrafts\LaravelRolePermissionManager;
 
 use CreativeCrafts\LaravelRolePermissionManager\Actions\CreateNewPermission;
 use CreativeCrafts\LaravelRolePermissionManager\Actions\CreateNewRole;
+use CreativeCrafts\LaravelRolePermissionManager\Cache\AuthorizationCache;
 use CreativeCrafts\LaravelRolePermissionManager\Contracts\LaravelRolePermissionManagerContract;
 use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionData;
+use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\PermissionReference;
 use CreativeCrafts\LaravelRolePermissionManager\DataTransferObjects\RoleData;
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\AmbiguousPermissionReferenceException;
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\EmptyPermissionSyncException;
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidParentException;
+use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionReferenceException;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class LaravelRolePermissionManager implements LaravelRolePermissionManagerContract
 {
+    public function __construct(private ?AuthorizationCache $authorizationCache = null)
+    {
+        $this->authorizationCache ??= app(AuthorizationCache::class);
+    }
+
     /**
      * Create a new role in the system.
      * This function creates a new role with the given name, slug, and optional description and parent role.
@@ -41,7 +50,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             parent: $parent,
         );
         $role = (new CreateNewRole($roleData))();
-        $this->clearRoleCache();
+        $this->clearRoleCache($role);
         return $role;
     }
 
@@ -56,6 +65,13 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function setRoleParent(Role $role, ?Role $parent): void
     {
+        if (! $role->exists) {
+            throw new InvalidParentException(
+                'Role must be a persisted Role model instance.',
+                Response::HTTP_NOT_ACCEPTABLE
+            );
+        }
+
         if ($parent instanceof Role && ! $parent->exists) {
             throw new InvalidParentException(
                 'Parent role must be a persisted Role model instance.',
@@ -63,10 +79,25 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             );
         }
 
-        $role->parent()->associate($parent);
-        $role->save();
+        $role->getConnection()->transaction(function () use ($role, $parent): void {
+            if ($parent instanceof Role && ! $this->authorizationCache->sameDatabase($role, $parent)) {
+                throw new InvalidParentException('Parent role must use the same database connection.');
+            }
 
-        $this->clearRoleCache();
+            $role->acquireHierarchyMutationLock();
+            $lockKeys = [$role->getKey()];
+            if ($parent instanceof Role) {
+                $lockKeys[] = $parent->getKey();
+            }
+            $role->lockRoleKeys($lockKeys);
+
+            $role->parent()->associate($parent);
+            $role->save();
+            $role->unsetRelation('parent');
+            $role->unsetRelation('children');
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+        });
     }
 
     /**
@@ -99,6 +130,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         string $slug,
         ?string $description = null,
         ?string $scope = null,
+        ?Connection $connection = null,
     ): Permission {
         $name = config('role-permission-manager.case_sensitive_permissions') ? $name : strtolower($name);
         $slug = config('role-permission-manager.case_sensitive_permissions') ? $slug : strtolower($slug);
@@ -109,8 +141,8 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
             description: $description,
             scope: $scope,
         ));
-        $permission = (new CreateNewPermission($permissionData))();
-        $this->clearPermissionCache();
+        $permission = (new CreateNewPermission($permissionData, $connection?->getName()))();
+        $this->clearPermissionCache($permission);
 
         return $permission;
     }
@@ -125,12 +157,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllRoles(): Collection
     {
-        /** @var Collection<int, Role> $roles */
-        $roles = Cache::remember('all_roles', $this->getCacheExpirationTime(), static function () {
-            return Role::all();
-        });
+        $role = new Role();
+        $connection = $role->getConnection();
+        /** @var list<int|string> $roleIds */
+        $roleIds = $this->authorizationCache->remember(
+            'role-catalog-ids',
+            [
+                'table' => $role->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
+            ],
+            static fn (): array => Role::query()->orderBy((new Role())->getKeyName())->pluck(
+                (new Role())->getKeyName()
+            )->all(),
+        );
 
-        return $roles;
+        return $this->rolesByIds($roleIds, $connection);
     }
 
     /**
@@ -143,12 +184,21 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllPermissions(): Collection
     {
-        /** @var Collection<int, Permission> $permissions */
-        $permissions = Cache::remember('all_permissions', $this->getCacheExpirationTime(), static function () {
-            return Permission::all();
-        });
+        $permission = new Permission();
+        $connection = $permission->getConnection();
+        /** @var list<int|string> $permissionIds */
+        $permissionIds = $this->authorizationCache->remember(
+            'permission-catalog-ids',
+            [
+                'table' => $permission->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
+            ],
+            static fn (): array => Permission::query()->orderBy((new Permission())->getKeyName())->pluck(
+                (new Permission())->getKeyName()
+            )->all(),
+        );
 
-        return $permissions;
+        return $this->permissionsByIds($permissionIds, $connection);
     }
 
     /**
@@ -164,13 +214,20 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function givePermissionToRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
-        $permissionModel = is_string($permission)
-            ? Permission::where('slug', $permission)->where('scope', $scope)->firstOrFail()
-            : $permission;
+        $scopeWasProvided = func_num_args() >= 3;
 
-        $role->permissions()->syncWithoutDetaching($permissionModel);
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+                $role->getConnection(),
+            );
 
-        $this->clearRoleCache();
+            $role->permissions()->syncWithoutDetaching([$permissionModel->getKey()]);
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+        });
     }
 
     /**
@@ -185,14 +242,20 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function revokePermissionFromRole(Role $role, Permission|string $permission, ?string $scope = null): void
     {
-        try {
-            $permissionModel = $this->getPermissionModel($permission, $scope);
+        $scopeWasProvided = func_num_args() >= 3;
+
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+                $role->getConnection(),
+            );
+
             $role->permissions()->detach($permissionModel);
-            $this->clearRoleCache();
-        } catch (ModelNotFoundException $e) {
-            // Do nothing if the permission doesn't exist
-            return;
-        }
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+        });
     }
 
     /**
@@ -208,15 +271,64 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      *               - 'attached': An array of names of newly added permissions.
      *               - 'detached': An array of names of removed permissions.
      */
-    public function syncPermissions(Role $role, array $permissions): array
+    public function syncPermissions(Role $role, array $permissions, bool $clear = false): array
     {
-        $permissionIds = Permission::whereIn('slug', $permissions)->pluck('id')->toArray();
-        $syncResult = $role->permissions()->sync($permissionIds);
+        if (! $role->exists) {
+            throw new InvalidPermissionReferenceException('Permissions can only be synchronized to a persisted role.');
+        }
 
-        return [
-            'attached' => Permission::whereIn('id', $syncResult['attached'])->pluck('name')->toArray(),
-            'detached' => Permission::whereIn('id', $syncResult['detached'])->pluck('name')->toArray(),
-        ];
+        if ($permissions === [] && ! $clear) {
+            throw new EmptyPermissionSyncException(
+                'An empty permission target requires explicit clear intent.'
+            );
+        }
+
+        if ($permissions !== [] && $clear) {
+            throw new EmptyPermissionSyncException(
+                'Explicit clear cannot be combined with permission references.'
+            );
+        }
+
+        return $role->getConnection()->transaction(function () use ($role, $permissions): array {
+            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $resolved = collect($permissions)
+                ->map(fn (mixed $reference): Permission => $this->resolvePermissionReference(
+                    $reference,
+                    true,
+                    $role->getConnection(),
+                ))
+                ->unique(static fn (Permission $permission): mixed => $permission->getKey())
+                ->values();
+
+            $permissionModel = new Permission();
+            $permissionKey = $permissionModel->qualifyColumn($permissionModel->getKeyName());
+            $currentIds = $role->permissions()
+                ->lockForUpdate()
+                ->pluck($permissionKey)
+                ->all();
+            $targetIds = $resolved
+                ->map(static fn (Permission $permission): mixed => $permission->getKey())
+                ->all();
+
+            $attached = $this->sortedIds(array_diff($targetIds, $currentIds));
+            $detached = $this->sortedIds(array_diff($currentIds, $targetIds));
+            $unchanged = $this->sortedIds(array_intersect($currentIds, $targetIds));
+
+            $role->permissions()->sync($targetIds);
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+
+            return [
+                'attached' => $this->permissionDescriptors($attached, $role->getConnection()),
+                'detached' => $this->permissionDescriptors($detached, $role->getConnection()),
+                'unchanged' => $this->permissionDescriptors($unchanged, $role->getConnection()),
+            ];
+        });
+    }
+
+    public function clearPermissions(Role $role): array
+    {
+        return $this->syncPermissions($role, [], true);
     }
 
     /**
@@ -230,27 +342,31 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param string|null $scope Optional. The scope of the permission. Default is null.
      * @return bool Returns true if the user has the specified permission, false otherwise.
      */
-    public function hasPermissionTo(mixed $user, string $permission, ?string $scope = null): bool
+    public function hasPermissionTo(mixed $user, Permission|string $permission, ?string $scope = null): bool
     {
+        if ($permission instanceof Permission && ! $this->permissionModelMatchesPrincipal($user, $permission)) {
+            return false;
+        }
+
         if ($this->isSuperAdmin($user)) {
             return true;
         }
 
-        if (config('role-permission-manager.auto_create_permissions')) {
-            $this->createPermission($permission, $permission, $scope);
-        }
-
         $userPermissions = $this->getAllPermissionsForUser($user);
 
+        if ($permission instanceof Permission) {
+            return $permission->exists
+                && ($scope === null || $permission->scope === $scope)
+                && $userPermissions->contains(
+                    fn (Permission $assigned): bool => $this->authorizationCache->sameDatabaseRecord(
+                        $assigned,
+                        $permission,
+                    )
+                );
+        }
+
         foreach ($userPermissions as $userPermission) {
-            if (config('role-permission-manager.enable_wildcard_permission')) {
-                if ($userPermission->wildcardMatch($permission, $scope)) {
-                    return true;
-                }
-            } elseif (
-                ($userPermission->name === $permission || $userPermission->slug === $permission) &&
-                ($scope === null || $userPermission->scope === $scope)
-            ) {
+            if ($userPermission->wildcardMatch($permission, $scope)) {
                 return true;
             }
         }
@@ -270,33 +386,48 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @return Collection<int, Permission> A collection of unique Permission objects associated with the user,
      *                                     including both direct and role-based permissions.
      */
-    public function getAllPermissionsForUser(mixed $user): Collection
+    public function getAllPermissionsForUser(mixed $user, ?string $scope = null): Collection
     {
-        $userId = $user->getAuthIdentifier();
-        $cacheKey = "user_permissions_{$userId}";
-
-        if (Config::string('app.env') === 'development' || Config::string('app.env') === 'local') {
-            $this->clearPermissionCache($cacheKey);
-        }
-
-        /** @var Collection<int, Permission> $permissions */
-        $permissions = Cache::remember($cacheKey, now()->addMinutes(60), function () use ($user) {
+        $connection = $user instanceof Model ? $user->getConnection() : null;
+        /** @var list<int|string> $permissionIds */
+        $permissionIds = $this->authorizationCache->remember(
+            'effective-permission-ids',
+            $this->authorizationCache->principalIdentity($user),
+            function () use ($user): array {
             if ($this->isSuperAdmin($user)) {
-                return Permission::all();
+                $permission = new Permission();
+                if ($user instanceof Model) {
+                    $permission->setConnection($user->getConnection()->getName());
+                }
+
+                return $permission->newQuery()->pluck($permission->getKeyName())->all();
             }
 
             $directPermissions = $user->permissions()->get();
             $userRoles = $user->roles()->get();
 
             $rolePermissions = $userRoles->map(function ($role) {
-                $permissions = $role->getAllPermissions();
-                Log::info("Permissions for role {$role->name}:", $permissions->toArray());
-                return $permissions;
+                return $role->getAllPermissions();
             })->flatten();
-            return $directPermissions->concat($rolePermissions)->unique('id');
-        });
 
-        return $permissions;
+                return $directPermissions
+                    ->concat($rolePermissions)
+                    ->unique(static fn (Permission $permission): mixed => $permission->getKey())
+                    ->map(static fn (Permission $permission): mixed => $permission->getKey())
+                    ->values()
+                    ->all();
+            },
+        );
+
+        $permissions = $this->permissionsByIds($permissionIds, $connection);
+
+        if ($scope === null) {
+            return $permissions;
+        }
+
+        return $permissions
+            ->filter(static fn (Permission $permission): bool => $permission->scope === $scope)
+            ->values();
     }
 
     /**
@@ -309,12 +440,28 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getAllPermissionsForScope(?string $scope = null): Collection
     {
-        $cacheKey = $scope !== null && $scope !== '' && $scope !== '0' ? "all_permissions_scope_{$scope}" : 'all_permissions';
+        if ($scope === null) {
+            return $this->getAllPermissions();
+        }
 
-        return Cache::remember($cacheKey, $this->getCacheExpirationTime(), static function () use ($scope) {
-            return $scope !== null && $scope !== '' && $scope !== '0' ? Permission::where('scope', $scope)->get(
-            ) : Permission::all();
-        });
+        $permission = new Permission();
+        $connection = $permission->getConnection();
+        /** @var list<int|string> $permissionIds */
+        $permissionIds = $this->authorizationCache->remember(
+            'permission-catalog-scope-ids',
+            [
+                'table' => $permission->getTable(),
+                'database' => $this->authorizationCache->databaseIdentity($connection),
+                'scope' => $this->authorizationCache->scopeIdentity($scope, true),
+            ],
+            static fn (): array => Permission::query()
+                ->where('scope', $scope)
+                ->orderBy((new Permission())->getKeyName())
+                ->pluck((new Permission())->getKeyName())
+                ->all(),
+        );
+
+        return $this->permissionsByIds($permissionIds, $connection);
     }
 
     /**
@@ -328,7 +475,11 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function isSuperAdmin(mixed $user): bool
     {
-        return $user->roles()->where('name', config('role-permission-manager.super_admin_role'))->exists();
+        $canonicalName = (string) config('role-permission-manager.super_admin_role', 'Super Admin');
+
+        return $user->roles()
+            ->pluck('name')
+            ->contains(static fn (mixed $name): bool => $name === $canonicalName);
     }
 
     /**
@@ -341,9 +492,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getSubRoles(Role $role): Collection
     {
-        return $role->getAllChildren()->flatMap(function ($child) {
-            return collect([$child])->merge($this->getSubRoles($child));
-        });
+        return $role->getAllChildren();
     }
 
     /**
@@ -355,14 +504,29 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param Role $role The role to which the permission will be granted, along with its sub-roles.
      * @param Permission|string $permission The permission to be granted. Can be either a Permission object or a permission slug.
      */
-    public function grantPermissionToRoleAndSubRoles(Role $role, Permission|string $permission): void
-    {
-        $this->givePermissionToRole($role, $permission);
+    public function grantPermissionToRoleAndSubRoles(
+        Role $role,
+        Permission|string $permission,
+        ?string $scope = null,
+    ): void {
+        $scopeWasProvided = func_num_args() >= 3;
 
-        $subRoles = $this->getSubRoles($role);
-        foreach ($subRoles as $subRole) {
-            $this->givePermissionToRole($subRole, $permission);
-        }
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $targets = $role->lockedSelfAndDescendants();
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+                $role->getConnection(),
+            );
+
+            foreach ($targets as $targetRole) {
+                $targetRole->permissions()->syncWithoutDetaching([$permissionModel->getKey()]);
+                $targetRole->unsetRelation('permissions');
+            }
+
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+        });
     }
 
     /**
@@ -374,14 +538,29 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * @param Role $role The role from which the permission will be revoked, along with its sub-roles.
      * @param Permission|string $permission The permission to be revoked. Can be either a Permission object or a permission slug.
      */
-    public function revokePermissionFromRoleAndSubRoles(Role $role, Permission|string $permission): void
-    {
-        $this->revokePermissionFromRole($role, $permission);
+    public function revokePermissionFromRoleAndSubRoles(
+        Role $role,
+        Permission|string $permission,
+        ?string $scope = null,
+    ): void {
+        $scopeWasProvided = func_num_args() >= 3;
 
-        $subRoles = $this->getSubRoles($role);
-        foreach ($subRoles as $subRole) {
-            $this->revokePermissionFromRole($subRole, $permission);
-        }
+        $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $targets = $role->lockedSelfAndDescendants();
+            $permissionModel = $this->resolvePermissionReference(
+                $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
+                true,
+                $role->getConnection(),
+            );
+
+            foreach ($targets as $targetRole) {
+                $targetRole->permissions()->detach($permissionModel->getKey());
+                $targetRole->unsetRelation('permissions');
+            }
+
+            $role->unsetRelation('permissions');
+            $this->clearRoleCache($role);
+        });
     }
 
     /**
@@ -405,16 +584,18 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getUserRoles(mixed $user): Collection
     {
-        $userId = $user->getAuthIdentifier();
-        $cacheKey = "user_roles_{$userId}";
+        $connection = $user instanceof Model ? $user->getConnection() : null;
+        /** @var list<int|string> $roleIds */
+        $roleIds = $this->authorizationCache->remember(
+            'principal-role-ids',
+            $this->authorizationCache->principalIdentity($user),
+            static fn (): array => $user->roles()
+                ->orderBy((new Role())->qualifyColumn((new Role())->getKeyName()))
+                ->pluck((new Role())->qualifyColumn((new Role())->getKeyName()))
+                ->all(),
+        );
 
-        if (app()->environment('development') || app()->environment('local') || app()->environment('testing')) {
-            $this->clearUserRoleCache($user);
-        }
-
-        return Cache::remember($cacheKey, $this->getCacheExpirationTime(), function () use ($user) {
-            return $user->roles()->get();
-        });
+        return $this->rolesByIds($roleIds, $connection);
     }
 
     /**
@@ -425,16 +606,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getRoleNames(mixed $user): Collection
     {
-        $userId = $user->getAuthIdentifier();
-        $cacheKey = "user_role_names_{$userId}";
-
-        if (app()->environment('development') || app()->environment('local') || app()->environment('testing')) {
-            $this->clearUserRoleCache($user);
-        }
-
-        return Cache::remember($cacheKey, $this->getCacheExpirationTime(), function () use ($user) {
-            return $user->roles()->pluck('name');
-        });
+        return $this->getUserRoles($user)->pluck('name')->values();
     }
 
     /**
@@ -445,15 +617,7 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function getRoleSlugs(mixed $user): Collection
     {
-        $userId = $user->getAuthIdentifier();
-        $cacheKey = "user_role_slugs_{$userId}";
-
-        if (app()->environment('development') || app()->environment('local') || app()->environment('testing')) {
-            $this->clearUserRoleCache($user);
-        }
-        return Cache::remember($cacheKey, $this->getCacheExpirationTime(), function () use ($user) {
-            return $user->roles()->pluck('slug');
-        });
+        return $this->getUserRoles($user)->pluck('slug')->values();
     }
 
     /**
@@ -463,10 +627,92 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function clearUserRoleCache(mixed $user): void
     {
-        $userId = $user->getAuthIdentifier();
-        Cache::forget("user_roles_{$userId}");
-        Cache::forget("user_role_names_{$userId}");
-        Cache::forget("user_role_slugs_{$userId}");
+        $this->authorizationCache->invalidate(
+            $user instanceof Model ? $user : null,
+            $user,
+        );
+    }
+
+    public function resolvePermissionReference(
+        mixed $reference,
+        bool $lockForUpdate = false,
+        ?Connection $connection = null,
+    ): Permission {
+        $permission = new Permission();
+        if ($connection instanceof Connection) {
+            $permission->setConnection($connection->getName());
+        }
+        $query = $permission->newQuery();
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        if ($reference instanceof Permission) {
+            if (! $reference->exists || $reference->getKey() === null) {
+                throw new InvalidPermissionReferenceException(
+                    'Permission model references must be persisted.'
+                );
+            }
+
+            if ($connection instanceof Connection && ! $this->authorizationCache->onConnection($reference, $connection)) {
+                throw new InvalidPermissionReferenceException(
+                    'Permission reference uses a different database connection.'
+                );
+            }
+
+            return $query->whereKey($reference->getKey())->firstOrFail();
+        }
+
+        if (is_int($reference)) {
+            if ($reference < 1) {
+                throw new InvalidPermissionReferenceException('Permission IDs must be positive integers.');
+            }
+
+            return $query->whereKey($reference)->firstOrFail();
+        }
+
+        if (is_array($reference)) {
+            $reference = PermissionReference::fromArray($reference);
+        }
+
+        if ($reference instanceof PermissionReference) {
+            $matches = $query
+                ->where('slug', $reference->slug)
+                ->where('scope', $reference->scope)
+                ->limit(2)
+                ->get();
+
+            if ($matches->isEmpty()) {
+                throw (new ModelNotFoundException())->setModel(Permission::class);
+            }
+
+            if ($matches->count() > 1) {
+                throw new AmbiguousPermissionReferenceException(
+                    "Permission slug '{$reference->slug}' with the requested scope is not unique."
+                );
+            }
+
+            return $matches->first();
+        }
+
+        if (is_string($reference) && $reference !== '') {
+            $matches = $query->where('slug', $reference)->limit(2)->get();
+            if ($matches->isEmpty()) {
+                throw (new ModelNotFoundException())->setModel(Permission::class);
+            }
+
+            if ($matches->count() > 1) {
+                throw new AmbiguousPermissionReferenceException(
+                    "Permission slug '{$reference}' is ambiguous; provide an exact scope or ID."
+                );
+            }
+
+            return $matches->first();
+        }
+
+        throw new InvalidPermissionReferenceException(
+            'Permission references must be Permission, positive integer ID, non-empty slug, or explicit slug/scope.'
+        );
     }
 
     /**
@@ -482,29 +728,29 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     protected function getPermissionModel(Permission|string $permission, ?string $scope = null): Permission
     {
-        if ($permission instanceof Permission) {
+        return $this->resolvePermissionReference(
+            $this->mutationPermissionReference($permission, $scope, func_num_args() >= 2),
+        );
+    }
+
+    private function permissionModelMatchesPrincipal(mixed $principal, Permission $permission): bool
+    {
+        return $permission->exists
+            && $permission->getKey() !== null
+            && $principal instanceof Model
+            && $this->authorizationCache->onConnection($permission, $principal->getConnection());
+    }
+
+    private function mutationPermissionReference(
+        Permission|string $permission,
+        ?string $scope,
+        bool $scopeWasProvided,
+    ): Permission|PermissionReference|string {
+        if ($permission instanceof Permission || ! $scopeWasProvided) {
             return $permission;
         }
 
-        $query = Permission::where('slug', $permission);
-
-        if ($scope !== null) {
-            $query->where('scope', $scope);
-        }
-
-        return $query->firstOrFail();
-    }
-
-    /**
-     * Get the cache expiration time from the configuration.
-     * This method retrieves the cache expiration time from the role-permission-manager
-     * configuration. If the configuration value is not set, it defaults to 60 minutes.
-     *
-     * @return int The cache expiration time in minutes.
-     */
-    private function getCacheExpirationTime(): int
-    {
-        return Config::integer('role-permission-manager.cache_expiration_time', 60);
+        return new PermissionReference($permission, $scope);
     }
 
     /**
@@ -514,17 +760,93 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      * be called whenever roles are modified to ensure fresh data
      * is retrieved on subsequent requests.
      */
-    private function clearRoleCache(): void
+    private function clearRoleCache(?Role $role = null): void
     {
-        Cache::forget('all_roles');
+        $this->authorizationCache->invalidate($role);
     }
 
-    private function clearPermissionCache(?string $cacheKey = null): void
+    private function clearPermissionCache(?Permission $permission = null): void
     {
-        if ($cacheKey !== null) {
-            Cache::forget($cacheKey);
-            return;
+        $this->authorizationCache->invalidate($permission);
+    }
+
+    /**
+     * @param list<int|string> $ids
+     * @return Collection<int, Permission>
+     */
+    private function permissionsByIds(array $ids, ?Connection $connection = null): Collection
+    {
+        if ($ids === []) {
+            return collect();
         }
-        Cache::forget('all_permissions');
+
+        $positions = array_flip(array_map('strval', $ids));
+        $permission = new Permission();
+        if ($connection instanceof Connection) {
+            $permission->setConnection($connection->getName());
+        }
+
+        return $permission->newQuery()
+            ->whereKey($ids)
+            ->get()
+            ->sortBy(static fn (Permission $permission): int => $positions[(string) $permission->getKey()])
+            ->values();
+    }
+
+    /**
+     * @param list<int|string> $ids
+     * @return Collection<int, Role>
+     */
+    private function rolesByIds(array $ids, ?Connection $connection = null): Collection
+    {
+        if ($ids === []) {
+            return collect();
+        }
+
+        $positions = array_flip(array_map('strval', $ids));
+        $role = new Role();
+        if ($connection instanceof Connection) {
+            $role->setConnection($connection->getName());
+        }
+
+        return $role->newQuery()
+            ->whereKey($ids)
+            ->get()
+            ->sortBy(static fn (Role $role): int => $positions[(string) $role->getKey()])
+            ->values();
+    }
+
+    /**
+     * @param array<int|string, mixed> $ids
+     * @return list<int|string>
+     */
+    private function sortedIds(array $ids): array
+    {
+        $ids = array_values($ids);
+        usort($ids, static function (mixed $left, mixed $right): int {
+            $leftKey = (string) $left;
+            $rightKey = (string) $right;
+            $bothNumeric = preg_match('/\A-?\d+\z/', $leftKey) === 1
+                && preg_match('/\A-?\d+\z/', $rightKey) === 1;
+
+            return $bothNumeric ? ((int) $leftKey <=> (int) $rightKey) : strcmp($leftKey, $rightKey);
+        });
+
+        return $ids;
+    }
+
+    /**
+     * @param list<int|string> $ids
+     * @return list<array{id: int|string, slug: string, scope: string|null}>
+     */
+    private function permissionDescriptors(array $ids, ?Connection $connection = null): array
+    {
+        return $this->permissionsByIds($ids, $connection)
+            ->map(static fn (Permission $permission): array => [
+                'id' => $permission->getKey(),
+                'slug' => (string) $permission->slug,
+                'scope' => $permission->scope,
+            ])
+            ->all();
     }
 }

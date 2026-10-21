@@ -7,6 +7,8 @@ namespace CreativeCrafts\LaravelRolePermissionManager\Facades;
 use Illuminate\Support\Facades\Facade;
 
 /**
+ * @mixin \CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager
+ *
  * @see \CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager
  */
 class LaravelRolePermissionManager extends Facade
