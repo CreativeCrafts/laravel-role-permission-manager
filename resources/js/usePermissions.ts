@@ -10,8 +10,8 @@ interface Permission {
 }
 
 interface PageProps {
-  auth: {
-    permissions: Permission[];
+  auth?: {
+    permissions?: Permission[];
     roles?: string[];
   };
 
@@ -42,7 +42,7 @@ type UsePermissions = {
  */
 export function usePermissions(): UsePermissions {
   const { auth } = usePage<PageProps>().props;
-  const permissions = useMemo(() => auth.permissions || [], [auth.permissions]);
+  const permissions = useMemo(() => auth?.permissions || [], [auth?.permissions]);
 
   /**
    * Checks if the user has a specific permission, optionally within a scope.

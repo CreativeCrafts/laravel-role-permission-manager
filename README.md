@@ -681,8 +681,10 @@ const MyComponent: React.FC = () => {
 
 ### Note on Permissions Data
 
-This hook expects the permissions data to be available in the Inertia page props under auth.permissions. Ensure this
-data is properly shared from your Laravel backend when using Inertia.js.
+This hook reads `auth.permissions` from the current Inertia page props. A missing `auth` prop, or a missing
+permissions list, denies every check, including guest and post-logout pages. Share `auth.permissions` from the
+backend when a signed-in user should see permitted actions. The package Inertia middleware shares an empty list for
+guests.
 
 This React hook provides a convenient and type-safe way to manage permissions in your React frontend when using
 Inertia.js, complementing the Laravel Role Permission Manager package's backend functionality.
