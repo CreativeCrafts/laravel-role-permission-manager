@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CreativeCrafts\LaravelRolePermissionManager\Cache;
 
 use Closure;
+use Throwable;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Repository;
@@ -28,6 +29,14 @@ final class AuthorizationCache
      */
     private array $pendingInvalidations = [];
 
+    /**
+     * A committed invalidation whose generation publish failed.
+     *
+     * This is not an open transaction. The next read must keep bypassing cached grants
+     * until publishGeneration() succeeds, even after the transaction level returns to zero.
+     */
+    private bool $unpublishedInvalidation = false;
+
     public function __construct(private readonly CacheFactory $cache)
     {
     }
@@ -49,7 +58,7 @@ final class AuthorizationCache
      */
     public function remember(string $type, array $identity, Closure $loader): mixed
     {
-        if (! $this->enabled() || $this->hasPendingInvalidation()) {
+        if (! $this->enabled() || ! $this->publishUnpublishedInvalidation() || $this->hasPendingInvalidation()) {
             return $loader();
         }
 
@@ -74,15 +83,20 @@ final class AuthorizationCache
             $connectionName = $connection->getName();
             $this->pendingInvalidations[$connectionName] = ($this->pendingInvalidations[$connectionName] ?? 0) + 1;
             $connection->afterCommit(function () use ($principal, $connectionName): void {
-                $this->publishGeneration();
-                $this->forgetLegacyPrincipal($principal);
-                $this->releasePendingInvalidation($connectionName);
+                $this->publishCommittedInvalidation($principal, $connectionName);
             });
 
             return;
         }
 
-        $this->publishGeneration();
+        try {
+            $this->publishGeneration();
+        } catch (Throwable $exception) {
+            $this->unpublishedInvalidation = true;
+
+            throw $exception;
+        }
+
         $this->forgetLegacyPrincipal($principal);
         $this->forgetInactivePendingInvalidations();
     }
@@ -242,6 +256,42 @@ final class AuthorizationCache
         ] as $legacyKey) {
             $this->repository()->forget($legacyKey);
         }
+    }
+
+    private function publishCommittedInvalidation(?Authenticatable $principal, string $connectionName): void
+    {
+        try {
+            $this->publishGeneration();
+        } catch (Throwable $exception) {
+            $this->unpublishedInvalidation = true;
+
+            throw $exception;
+        }
+
+        $this->forgetLegacyPrincipal($principal);
+        $this->releasePendingInvalidation($connectionName);
+    }
+
+    /**
+     * Retry a committed generation change that previously failed.
+     *
+     * @return bool False when the cache store is still unavailable and reads must use the loader.
+     */
+    private function publishUnpublishedInvalidation(): bool
+    {
+        if (! $this->unpublishedInvalidation) {
+            return true;
+        }
+
+        try {
+            $this->publishGeneration();
+        } catch (Throwable) {
+            return false;
+        }
+
+        $this->unpublishedInvalidation = false;
+
+        return true;
     }
 
     private function hasPendingInvalidation(): bool

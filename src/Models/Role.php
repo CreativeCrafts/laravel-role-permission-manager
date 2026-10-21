@@ -10,6 +10,7 @@ use CreativeCrafts\LaravelRolePermissionManager\Exceptions\InvalidPermissionArgu
 use CreativeCrafts\LaravelRolePermissionManager\Exceptions\RoleHierarchyCycleException;
 use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Events\NullDispatcher;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -259,20 +260,27 @@ class Role extends Model
      */
     public function save(array $options = [])
     {
+        $parentChanged = $this->isDirty('parent_id');
+
         if (! $this->parentAssignmentNeedsTransaction()) {
-            if ($this->isDirty('parent_id') && $this->getConnection()->transactionLevel() > 0) {
+            if ($parentChanged && $this->getConnection()->transactionLevel() > 0) {
                 $this->acquireHierarchyMutationLock();
                 $this->guardAcyclicParentAssignment();
             }
 
-            return parent::save($options);
+            $saved = parent::save($options);
+            $this->invalidateSuppressedParentChange($saved === true && $parentChanged);
+
+            return $saved;
         }
 
-        return $this->getConnection()->transaction(function () use ($options): bool {
+        return $this->getConnection()->transaction(function () use ($options, $parentChanged): bool {
             $this->acquireHierarchyMutationLock();
             $this->guardAcyclicParentAssignment();
+            $saved = parent::save($options);
+            $this->invalidateSuppressedParentChange($saved === true && $parentChanged);
 
-            return parent::save($options);
+            return $saved;
         });
     }
 
@@ -376,6 +384,20 @@ class Role extends Model
         if ($this->isDirty('parent_id') && $this->parent_id !== null) {
             $this->assertAcyclicParent((int) $this->parent_id);
         }
+    }
+
+    private function invalidateSuppressedParentChange(bool $parentChanged): void
+    {
+        $dispatcher = static::getEventDispatcher();
+        if (
+            ! $parentChanged
+            || ! app()->bound(AuthorizationCache::class)
+            || ($dispatcher !== null && ! $dispatcher instanceof NullDispatcher)
+        ) {
+            return;
+        }
+
+        app(AuthorizationCache::class)->invalidate($this);
     }
 
     private function permissionModelMatchesConnection(Permission $permission): bool

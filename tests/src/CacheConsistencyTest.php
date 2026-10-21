@@ -7,6 +7,7 @@ use CreativeCrafts\LaravelRolePermissionManager\LaravelRolePermissionManager;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
+use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Database\Schema\Blueprint;
@@ -212,6 +213,44 @@ it('invalidates users when a retained role loses a permission or parent', functi
     expect($user->hasPermissionTo('inherited.action'))->toBeTrue();
     $manager->setRoleParent($child, null);
     expect($user->hasPermissionTo('inherited.action'))->toBeFalse();
+
+    $manager->setRoleParent($child, $parent);
+    expect($user->hasPermissionTo('inherited.action'))->toBeTrue();
+    $child->updateQuietly(['parent_id' => null]);
+    expect($user->hasPermissionTo('inherited.action'))->toBeFalse();
+});
+
+it('does not reuse a cached grant when a committed generation publish fails', function () {
+    Config::set('role-permission-manager.use_cache', true);
+    Config::set('role-permission-manager.cache_expiration_time', 60);
+    $repository = new class (Cache::store('array')->getStore()) extends CacheRepository {
+        public int $remainingFailures = 2;
+
+        public function increment($key, $value = 1)
+        {
+            if ($this->remainingFailures > 0) {
+                $this->remainingFailures--;
+
+                throw new RuntimeException('redis down');
+            }
+
+            return parent::increment($key, $value);
+        }
+    };
+    $factory = Mockery::mock(CacheFactory::class);
+    $factory->shouldReceive('store')->andReturn($repository);
+    $cache = new AuthorizationCache($factory);
+    $role = Role::factory()->create();
+
+    expect($cache->remember('grant', ['id' => $role->getKey()], static fn (): string => 'stale'))->toBe('stale');
+
+    expect(fn () => $role->getConnection()->transaction(function () use ($cache, $role): void {
+        $cache->invalidate($role);
+    }))->toThrow(RuntimeException::class);
+
+    expect($cache->remember('grant', ['id' => $role->getKey()], static fn (): string => 'fresh'))->toBe('fresh')
+        ->and($cache->remember('grant', ['id' => $role->getKey()], static fn (): string => 'published'))->toBe('published')
+        ->and($cache->remember('grant', ['id' => $role->getKey()], static fn (): string => 'stale-again'))->toBe('published');
 });
 
 it('does not publish rolled-back revocation state', function () {

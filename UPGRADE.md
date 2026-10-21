@@ -77,7 +77,8 @@ model is already persisted on the same database as the user or role. An unsaved 
 connection, does not.
 
 `saveQuietly()` and `updateQuietly()` still suppress model events, but a `parent_id` change is rejected when it would
-create a cycle. A query-builder update of `parent_id` does not pass through the model, so it can still persist a cycle.
+create a cycle and still invalidates cached authorization. A query-builder update of `parent_id` does not pass through
+the model, so it can still persist a cycle and leave cached grants unchanged.
 
 ### Metadata routes deny by default
 
