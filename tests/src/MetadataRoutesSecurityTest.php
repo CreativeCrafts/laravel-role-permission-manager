@@ -6,6 +6,17 @@ use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRol
 use CreativeCrafts\LaravelRolePermissionManager\Contracts\MetadataAccessAuthorizer;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Permission;
 use CreativeCrafts\LaravelRolePermissionManager\Models\Role;
+use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TraitOnlyUser;
+
+it('denies metadata routes to a trait-only user that the package does not accept', function () {
+    $user = new TraitOnlyUser();
+    $user->name = 'Trait only';
+    $user->save();
+
+    $this->actingAs($user)
+        ->getJson('/api/role-permissions/roles')
+        ->assertForbidden();
+});
 
 it('denies guests and ordinary users access to protected catalogs', function () {
     $ordinary = createTestUser();

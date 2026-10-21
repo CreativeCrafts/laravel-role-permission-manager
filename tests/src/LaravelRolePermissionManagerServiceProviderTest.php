@@ -8,6 +8,7 @@ use CreativeCrafts\LaravelRolePermissionManager\Middleware\HandleInertiaRequests
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\PermissionMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\RoleMiddleware;
 use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TestUser;
+use CreativeCrafts\LaravelRolePermissionManager\Tests\Models\TraitOnlyUser;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Gate;
@@ -36,6 +37,11 @@ it('throws exception if user model is not a subclass of Eloquent Model', functio
 /* it('throws exception if user model does not use HasRolesAndPermissions trait', function () {
     LaravelRolePermissionManagerServiceProvider::registerUserModel(TestUser::class);
 })->throws(InvalidArgumentException::class, 'must use the HasRolesAndPermissions trait');*/
+
+it('rejects a user model that uses the trait without the authorization interface', function () {
+    expect(fn () => LaravelRolePermissionManagerServiceProvider::registerUserModel(TraitOnlyUser::class))
+        ->toThrow(InvalidArgumentException::class, 'AuthenticatableWithRolesAndPermissions');
+});
 
 it('registers a valid user model into config', function () {
     LaravelRolePermissionManagerServiceProvider::registerUserModel(TestUser::class);

@@ -14,6 +14,7 @@ use CreativeCrafts\LaravelRolePermissionManager\Commands\ListRolesPermissionsCom
 use CreativeCrafts\LaravelRolePermissionManager\Commands\PreflightAuthorizationDataCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\RemovePermissionCommand;
 use CreativeCrafts\LaravelRolePermissionManager\Commands\SyncPermissionsCommand;
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
 use CreativeCrafts\LaravelRolePermissionManager\Contracts\MetadataAccessAuthorizer;
 use CreativeCrafts\LaravelRolePermissionManager\Http\Controllers\RolePermissionController;
 use CreativeCrafts\LaravelRolePermissionManager\Middleware\HandleInertiaRequests;
@@ -48,9 +49,7 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
             throw new InvalidArgumentException("User model {$userModel} must extend Eloquent Model.");
         }
 
-        if (! in_array(HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
-            throw new InvalidArgumentException('The user model must use the HasRolesAndPermissions trait.');
-        }
+        self::assertUserModelContract($userModel);
 
         config([
             'role-permission-manager.user_model' => $userModel,
@@ -209,12 +208,13 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
     /**
      * Validates the user model configuration for the role-permission manager.
      * This function checks if the configured user model exists, extends the Eloquent Model,
-     * and uses the HasRolesAndPermissions trait. It throws exceptions if any of these
-     * conditions are not met.
+     * uses the HasRolesAndPermissions trait, and implements AuthenticatableWithRolesAndPermissions.
+     * It throws exceptions if any of these conditions are not met.
      *
      * @throws InvalidArgumentException If the user model is not defined, does not exist,
-     *                                  does not extend Eloquent Model, or does not use
-     *                                  the HasRolesAndPermissions trait.
+     *                                  does not extend Eloquent Model, does not use
+     *                                  the HasRolesAndPermissions trait, or does not implement
+     *                                  AuthenticatableWithRolesAndPermissions.
      */
     protected function validateUserModel(): void
     {
@@ -228,9 +228,7 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
             throw new InvalidArgumentException('The user model must extend Illuminate\Database\Eloquent\Model');
         }
 
-        if (! in_array(HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
-            throw new InvalidArgumentException('The user model must use the HasRolesAndPermissions trait');
-        }
+        self::assertUserModelContract($userModel);
     }
 
     /**
@@ -275,6 +273,19 @@ class LaravelRolePermissionManagerServiceProvider extends PackageServiceProvider
             $this->publishes([
                 __DIR__ . '/Policies' => app_path('Policies'),
             ], 'laravel-role-permission-manager-policies');
+        }
+    }
+
+    private static function assertUserModelContract(string $userModel): void
+    {
+        if (! in_array(HasRolesAndPermissions::class, class_uses_recursive($userModel), true)) {
+            throw new InvalidArgumentException('The user model must use the HasRolesAndPermissions trait.');
+        }
+
+        if (! is_subclass_of($userModel, AuthenticatableWithRolesAndPermissions::class)) {
+            throw new InvalidArgumentException(
+                'The user model must implement ' . AuthenticatableWithRolesAndPermissions::class . '.'
+            );
         }
     }
 }

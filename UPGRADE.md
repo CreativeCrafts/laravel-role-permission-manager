@@ -53,6 +53,23 @@ For every other ability the package returns `null`, allowing host gates and mode
 unprefixed package Gate calls or set `register_permission_check_method` to `false` while migrating them. Never choose an
 empty prefix.
 
+### User models must implement the authorization contract
+
+Metadata routes, role middleware, permission middleware, and `role-permission:assign-role` accept only a user that
+implements `CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions`. Using
+`HasRolesAndPermissions` without that interface is no longer a valid registration. `registerUserModel()` rejects it.
+
+```php
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
+use CreativeCrafts\LaravelRolePermissionManager\Traits\HasRolesAndPermissions;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+
+class User extends Authenticatable implements AuthenticatableWithRolesAndPermissions
+{
+    use HasRolesAndPermissions;
+}
+```
+
 ### Metadata routes deny by default
 
 The four optional routes are still protected by the configured route middleware and now also enforce resource

@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
+use LogicException;
 
 /**
  * Represents a role in the application's authorization system.
@@ -92,40 +93,31 @@ class Role extends Model
      */
     public function getAllChildren(): Collection
     {
+        return $this->collectDescendants(false);
+    }
+
+    /**
+     * Lock this role and its current descendants for the surrounding transaction.
+     *
+     * Parent changes take the same hierarchy lock before updating parent_id, so a
+     * subtree grant or revocation cannot apply a membership set that has already
+     * been reparented.
+     *
+     * @return Collection<int, self>
+     */
+    public function lockedSelfAndDescendants(): Collection
+    {
         if (! $this->exists) {
-            return collect();
+            /** @var Collection<int, self> $onlySelf */
+            $onlySelf = collect([$this]);
+
+            return $onlySelf;
         }
 
-        $visited = [(string) $this->getKey() => true];
-        $queue = [$this->getKey()];
-        $descendants = collect();
-        $maxNodes = max(1, (int) config('role-permission-manager.hierarchy_max_nodes', 10000));
-        $keyName = $this->getKeyName();
+        $this->acquireHierarchyMutationLock();
+        $self = $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
 
-        while ($queue !== []) {
-            $parentId = array_shift($queue);
-            $children = $this->newQuery()
-                ->where('parent_id', $parentId)
-                ->orderBy($keyName)
-                ->get();
-
-            foreach ($children as $child) {
-                $key = (string) $child->getKey();
-                if (isset($visited[$key])) {
-                    throw new RoleHierarchyCycleException('A cycle exists in the persisted role hierarchy.');
-                }
-
-                $visited[$key] = true;
-                $descendants->push($child);
-                $queue[] = $child->getKey();
-
-                if ($descendants->count() > $maxNodes) {
-                    throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
-                }
-            }
-        }
-
-        return $descendants;
+        return collect([$self])->concat($self->collectDescendants(true));
     }
 
     /**
@@ -264,10 +256,54 @@ class Role extends Model
     public function save(array $options = [])
     {
         if (! $this->parentAssignmentNeedsTransaction()) {
+            if ($this->isDirty('parent_id') && $this->getConnection()->transactionLevel() > 0) {
+                $this->acquireHierarchyMutationLock();
+            }
+
             return parent::save($options);
         }
 
-        return $this->getConnection()->transaction(fn (): bool => parent::save($options));
+        return $this->getConnection()->transaction(function () use ($options): bool {
+            $this->acquireHierarchyMutationLock();
+
+            return parent::save($options);
+        });
+    }
+
+    /**
+     * Serialize hierarchy edits on this connection.
+     *
+     * SQLite has no row locks, so a no-op update takes the writer lock before the
+     * tree is read. Other drivers lock the lowest role row inside the transaction;
+     * that lock is released on commit or rollback.
+     */
+    public function acquireHierarchyMutationLock(): void
+    {
+        $connection = $this->getConnection();
+        if ($connection->transactionLevel() < 1) {
+            throw new LogicException('Role hierarchy mutations must run inside a transaction.');
+        }
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $this->reserveSqliteHierarchyLock();
+
+            return;
+        }
+
+        $this->newQuery()->orderBy($this->getKeyName())->lockForUpdate()->first([$this->getKeyName()]);
+    }
+
+    /**
+     * @param list<int|string> $keys
+     */
+    public function lockRoleKeys(array $keys): void
+    {
+        $orderedKeys = array_values(array_unique(array_map(strval(...), $keys)));
+        sort($orderedKeys, SORT_STRING);
+
+        foreach ($orderedKeys as $key) {
+            $this->newQuery()->whereKey($key)->lockForUpdate()->firstOrFail();
+        }
     }
 
     /**
@@ -326,8 +362,50 @@ class Role extends Model
     private function parentAssignmentNeedsTransaction(): bool
     {
         return $this->isDirty('parent_id')
-            && $this->parent_id !== null
             && $this->getConnection()->transactionLevel() === 0;
+    }
+
+    /**
+     * @return Collection<int, self>
+     */
+    private function collectDescendants(bool $lock): Collection
+    {
+        if (! $this->exists) {
+            return collect();
+        }
+
+        $visited = [(string) $this->getKey() => true];
+        $queue = [$this->getKey()];
+        $descendants = collect();
+        $maxNodes = max(1, (int) config('role-permission-manager.hierarchy_max_nodes', 10000));
+        $keyName = $this->getKeyName();
+
+        while ($queue !== []) {
+            $parentId = array_shift($queue);
+            $childrenQuery = $this->newQuery()
+                ->where('parent_id', $parentId)
+                ->orderBy($keyName);
+            if ($lock) {
+                $childrenQuery->lockForUpdate();
+            }
+
+            foreach ($childrenQuery->get() as $child) {
+                $key = (string) $child->getKey();
+                if (isset($visited[$key])) {
+                    throw new RoleHierarchyCycleException('A cycle exists in the persisted role hierarchy.');
+                }
+
+                $visited[$key] = true;
+                $descendants->push($child);
+                $queue[] = $child->getKey();
+
+                if ($descendants->count() > $maxNodes) {
+                    throw new RoleHierarchyCycleException('Role hierarchy traversal exceeded the configured limit.');
+                }
+            }
+        }
+
+        return $descendants;
     }
 
     private function assertAcyclicParent(int $parentId): void

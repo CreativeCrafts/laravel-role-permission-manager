@@ -134,6 +134,21 @@ Key configuration options:
 After installing the package, you need to register your User model. This step is crucial for the package to work
 correctly with your application's user model.
 
+The user model must use `HasRolesAndPermissions` and implement
+`CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions`. Metadata routes and
+role or permission middleware reject a model that only uses the trait.
+
+```php
+use CreativeCrafts\LaravelRolePermissionManager\Contracts\AuthenticatableWithRolesAndPermissions;
+use CreativeCrafts\LaravelRolePermissionManager\Traits\HasRolesAndPermissions;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+
+class User extends Authenticatable implements AuthenticatableWithRolesAndPermissions
+{
+    use HasRolesAndPermissions;
+}
+```
+
 Add the following code to your `AppServiceProvider` or a custom service provider:
 
 ```php

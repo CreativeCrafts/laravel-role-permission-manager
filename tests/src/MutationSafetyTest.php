@@ -190,6 +190,65 @@ it('detects historical cycles and traverses valid branches once', function () {
         ->toThrow(RoleHierarchyCycleException::class);
 });
 
+it('locks the current hierarchy before a subtree grant and skips a role that has left it', function () {
+    $manager = app(LaravelRolePermissionManager::class);
+    $root = Role::factory()->create(['name' => 'Locked root', 'slug' => 'locked-root']);
+    $child = Role::factory()->create([
+        'name' => 'Locked child',
+        'slug' => 'locked-child',
+        'parent_id' => $root->id,
+    ]);
+    $permission = Permission::factory()->create([
+        'name' => 'Subtree grant',
+        'slug' => 'subtree-grant',
+        'scope' => null,
+    ]);
+    $manager->setRoleParent($child, null);
+
+    $rolesTable = strtolower((string) config('role-permission-manager.roles_table'));
+    $pivotTable = strtolower((string) config('role-permission-manager.role_permission_table'));
+    $sawHierarchyLock = false;
+    $pivotWriteAfterLock = false;
+
+    DB::listen(function ($query) use (
+        &$sawHierarchyLock,
+        &$pivotWriteAfterLock,
+        $root,
+        $rolesTable,
+        $pivotTable,
+    ): void {
+        $sql = strtolower($query->sql);
+        $locksRoles = str_contains($sql, $rolesTable)
+            && (str_contains($sql, '0 = 1') || str_contains($sql, 'for update'));
+        if ($locksRoles && $root->getConnection()->transactionLevel() > 0) {
+            $sawHierarchyLock = true;
+        }
+
+        if (
+            $sawHierarchyLock
+            && str_contains($sql, $pivotTable)
+            && str_starts_with(ltrim($sql), 'insert')
+        ) {
+            $pivotWriteAfterLock = true;
+        }
+    });
+
+    $manager->grantPermissionToRoleAndSubRoles($root, $permission);
+
+    expect($sawHierarchyLock)->toBeTrue()
+        ->and($pivotWriteAfterLock)->toBeTrue()
+        ->and($root->fresh()->permissions->modelKeys())->toBe([$permission->id])
+        ->and($child->fresh()->permissions)->toBeEmpty();
+
+    $manager->setRoleParent($child, $root);
+    $manager->grantPermissionToRoleAndSubRoles($root, $permission);
+    $manager->setRoleParent($child, null);
+    $manager->revokePermissionFromRoleAndSubRoles($root, $permission);
+
+    expect($root->fresh()->permissions)->toBeEmpty()
+        ->and($child->fresh()->permissions->modelKeys())->toBe([$permission->id]);
+});
+
 it('propagates one exact scoped permission identity to every descendant once', function () {
     $manager = app(LaravelRolePermissionManager::class);
     $root = Role::factory()->create(['name' => 'Root', 'slug' => 'root']);

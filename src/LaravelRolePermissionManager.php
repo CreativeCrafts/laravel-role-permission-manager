@@ -84,10 +84,12 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
                 throw new InvalidParentException('Parent role must use the same database connection.');
             }
 
-            $role->newQuery()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $role->acquireHierarchyMutationLock();
+            $lockKeys = [$role->getKey()];
             if ($parent instanceof Role) {
-                $parent->newQuery()->whereKey($parent->getKey())->lockForUpdate()->firstOrFail();
+                $lockKeys[] = $parent->getKey();
             }
+            $role->lockRoleKeys($lockKeys);
 
             $role->parent()->associate($parent);
             $role->save();
@@ -506,18 +508,19 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         $scopeWasProvided = func_num_args() >= 3;
 
         $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $targets = $role->lockedSelfAndDescendants();
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
                 $role->getConnection(),
             );
 
-            $roles = collect([$role])->concat($this->getSubRoles($role));
-            foreach ($roles as $targetRole) {
+            foreach ($targets as $targetRole) {
                 $targetRole->permissions()->syncWithoutDetaching([$permissionModel->getKey()]);
                 $targetRole->unsetRelation('permissions');
             }
 
+            $role->unsetRelation('permissions');
             $this->clearRoleCache($role);
         });
     }
@@ -539,18 +542,19 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         $scopeWasProvided = func_num_args() >= 3;
 
         $role->getConnection()->transaction(function () use ($role, $permission, $scope, $scopeWasProvided): void {
+            $targets = $role->lockedSelfAndDescendants();
             $permissionModel = $this->resolvePermissionReference(
                 $this->mutationPermissionReference($permission, $scope, $scopeWasProvided),
                 true,
                 $role->getConnection(),
             );
 
-            $roles = collect([$role])->concat($this->getSubRoles($role));
-            foreach ($roles as $targetRole) {
+            foreach ($targets as $targetRole) {
                 $targetRole->permissions()->detach($permissionModel->getKey());
                 $targetRole->unsetRelation('permissions');
             }
 
+            $role->unsetRelation('permissions');
             $this->clearRoleCache($role);
         });
     }
