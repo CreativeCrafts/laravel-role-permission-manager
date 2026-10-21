@@ -287,8 +287,8 @@ trait HasRolesAndPermissions
     /**
      * Check if the model has a specific permission.
      * This method determines whether the current model instance has the specified permission.
-     * It first checks if the user is a super admin (who has all permissions by default).
-     * If not, it delegates the permission check to the role-permission manager.
+     * A Permission model must already be persisted on this model's database. A super admin
+     * then passes every remaining check. Other models delegate to the role-permission manager.
      *
      * @param Permission|string $permission The permission to check. Can be either a Permission object or a string representing the permission's slug.
      * @param string|null $scope Optional. The scope of the permission to check. Default is null.
@@ -298,9 +298,14 @@ trait HasRolesAndPermissions
     public function hasPermissionTo(Permission|string $permission, ?string $scope = null): bool
     {
         $this->ensureCorrectUsage();
+        if ($permission instanceof Permission && ! $this->permissionModelMatchesConnection($permission)) {
+            return false;
+        }
+
         if ($this->hasSuperAdminRole()) {
             return true;
         }
+
         return app('laravel-role-permission-manager')->hasPermissionTo($this, $permission, $scope);
     }
 
@@ -394,13 +399,6 @@ trait HasRolesAndPermissions
         return collect($permissions)->every(fn ($permission) => $this->hasPermissionTo($permission, $scope));
     }
 
-    /**
-     * Ensures that the trait is being used correctly on an Eloquent model.
-     * This method checks if the current instance is an Eloquent model.
-     * If not, it throws a LogicException to indicate improper usage of the trait.
-     *
-     * @throws LogicException If the trait is not used on an Eloquent model.
-     */
     protected function ensureCorrectUsage(): void
     {
         if (! $this instanceof Model) {
@@ -450,6 +448,20 @@ trait HasRolesAndPermissions
     protected function getPermissionModel(Permission|string $permission, ?string $scope = null): Permission
     {
         return $this->resolvePermissionForAssignment($permission, $scope, func_num_args() > 1);
+    }
+
+    /**
+     * Ensures that the trait is being used correctly on an Eloquent model.
+     * This method checks if the current instance is an Eloquent model.
+     * If not, it throws a LogicException to indicate improper usage of the trait.
+     *
+     * @throws LogicException If the trait is not used on an Eloquent model.
+     */
+    private function permissionModelMatchesConnection(Permission $permission): bool
+    {
+        return $permission->exists
+            && $permission->getKey() !== null
+            && app(AuthorizationCache::class)->onConnection($permission, $this->getConnection());
     }
 
     private function resolvePermissionForAssignment(

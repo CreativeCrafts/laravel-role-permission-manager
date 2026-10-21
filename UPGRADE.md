@@ -70,6 +70,15 @@ class User extends Authenticatable implements AuthenticatableWithRolesAndPermiss
 }
 ```
 
+### Privileged checks still require a local permission record
+
+A super admin still passes every permission slug. A `Permission` model satisfies `hasPermissionTo()` only when that
+model is already persisted on the same database as the user or role. An unsaved model, or a model loaded from another
+connection, does not.
+
+`saveQuietly()` and `updateQuietly()` still suppress model events, but a `parent_id` change is rejected when it would
+create a cycle. A query-builder update of `parent_id` does not pass through the model, so it can still persist a cycle.
+
 ### Metadata routes deny by default
 
 The four optional routes are still protected by the configured route middleware and now also enforce resource

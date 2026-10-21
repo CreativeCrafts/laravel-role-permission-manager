@@ -344,6 +344,10 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
      */
     public function hasPermissionTo(mixed $user, Permission|string $permission, ?string $scope = null): bool
     {
+        if ($permission instanceof Permission && ! $this->permissionModelMatchesPrincipal($user, $permission)) {
+            return false;
+        }
+
         if ($this->isSuperAdmin($user)) {
             return true;
         }
@@ -727,6 +731,14 @@ class LaravelRolePermissionManager implements LaravelRolePermissionManagerContra
         return $this->resolvePermissionReference(
             $this->mutationPermissionReference($permission, $scope, func_num_args() >= 2),
         );
+    }
+
+    private function permissionModelMatchesPrincipal(mixed $principal, Permission $permission): bool
+    {
+        return $permission->exists
+            && $permission->getKey() !== null
+            && $principal instanceof Model
+            && $this->authorizationCache->onConnection($permission, $principal->getConnection());
     }
 
     private function mutationPermissionReference(

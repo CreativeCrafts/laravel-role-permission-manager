@@ -90,4 +90,19 @@ it('does not treat same ids on another database as the same authorization record
 
     expect($synced['unchanged'][0]['slug'])->toBe('tenant-side')
         ->and($tenantRole->fresh()->permissions->pluck('slug')->all())->toBe(['tenant-side']);
+
+    $superRole = Role::factory()->create(['name' => 'Super Admin', 'slug' => 'super-admin']);
+    $defaultUser->assignRole($superRole);
+    $unsavedPermission = new Permission(['slug' => 'unsaved']);
+
+    expect($defaultUser->hasPermissionTo('anything'))->toBeTrue()
+        ->and($defaultUser->hasPermissionTo($defaultPermission))->toBeTrue()
+        ->and($defaultUser->hasPermissionTo($tenantPermission))->toBeFalse()
+        ->and($defaultUser->hasPermissionTo($unsavedPermission))->toBeFalse()
+        ->and($manager->hasPermissionTo($defaultUser, $defaultPermission))->toBeTrue()
+        ->and($manager->hasPermissionTo($defaultUser, $tenantPermission))->toBeFalse()
+        ->and($manager->hasPermissionTo($defaultUser, $unsavedPermission))->toBeFalse()
+        ->and($superRole->hasPermissionTo($defaultPermission))->toBeTrue()
+        ->and($superRole->hasPermissionTo($tenantPermission))->toBeFalse()
+        ->and($superRole->hasPermissionTo($unsavedPermission))->toBeFalse();
 });

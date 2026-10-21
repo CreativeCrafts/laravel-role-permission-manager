@@ -141,6 +141,16 @@ it('rejects a cycle when parent_id is saved directly and keeps the check inside 
 
     expect(fn () => $parent->save())->toThrow(RoleHierarchyCycleException::class)
         ->and($parent->fresh()->parent_id)->toBeNull();
+
+    expect(fn () => $parent->updateQuietly(['parent_id' => $child->getKey()]))
+        ->toThrow(RoleHierarchyCycleException::class)
+        ->and(fn () => $parent->saveQuietly())
+        ->toThrow(RoleHierarchyCycleException::class)
+        ->and($parent->fresh()->parent_id)->toBeNull();
+
+    $child->updateQuietly(['parent_id' => null]);
+
+    expect($child->fresh()->parent_id)->toBeNull();
 });
 
 it('rolls back synchronization with its outer transaction', function () {

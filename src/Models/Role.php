@@ -125,6 +125,10 @@ class Role extends Model
      */
     public function hasPermissionTo(Permission|string $permission, ?string $scope = null): bool
     {
+        if ($permission instanceof Permission && ! $this->permissionModelMatchesConnection($permission)) {
+            return false;
+        }
+
         if ($this->isSuperAdmin()) {
             return true;
         }
@@ -258,6 +262,7 @@ class Role extends Model
         if (! $this->parentAssignmentNeedsTransaction()) {
             if ($this->isDirty('parent_id') && $this->getConnection()->transactionLevel() > 0) {
                 $this->acquireHierarchyMutationLock();
+                $this->guardAcyclicParentAssignment();
             }
 
             return parent::save($options);
@@ -265,6 +270,7 @@ class Role extends Model
 
         return $this->getConnection()->transaction(function () use ($options): bool {
             $this->acquireHierarchyMutationLock();
+            $this->guardAcyclicParentAssignment();
 
             return parent::save($options);
         });
@@ -363,6 +369,20 @@ class Role extends Model
     {
         return $this->isDirty('parent_id')
             && $this->getConnection()->transactionLevel() === 0;
+    }
+
+    private function guardAcyclicParentAssignment(): void
+    {
+        if ($this->isDirty('parent_id') && $this->parent_id !== null) {
+            $this->assertAcyclicParent((int) $this->parent_id);
+        }
+    }
+
+    private function permissionModelMatchesConnection(Permission $permission): bool
+    {
+        return $permission->exists
+            && $permission->getKey() !== null
+            && app(AuthorizationCache::class)->onConnection($permission, $this->getConnection());
     }
 
     /**
